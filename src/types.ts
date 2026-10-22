@@ -58,4 +58,4 @@ export interface ShippingOrder {
   priority: 'low' | 'medium' | 'high';
 }
 
-export type Page = 'dashboard' | 'inventory' | 'locations' | 'receiving' | 'shipping' | 'movements' | 'barcode-kit';
+export type Page = 'dashboard' | 'inventory' | 'locations' | 'receiving' | 'shipping' | 'movements' | 'barcode-kit' | 'help';
