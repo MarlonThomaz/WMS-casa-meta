@@ -1,5 +1,6 @@
-import { LayoutDashboard, Package, MapPin, Truck, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Warehouse } from 'lucide-react';
+import { LayoutDashboard, Package, MapPin, Truck, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Warehouse, Download } from 'lucide-react';
 import { Page } from '../types';
+import { downloadProjectZip } from '../downloadProject';
 
 interface SidebarProps {
   currentPage: Page;
@@ -54,7 +55,14 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
         </ul>
       </nav>
 
-      <div className="p-4 border-t border-slate-700">
+      <div className="p-4 border-t border-slate-700 space-y-3">
+        <button
+          onClick={downloadProjectZip}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-emerald-600 hover:text-white transition-all border border-slate-700 hover:border-emerald-500"
+        >
+          <Download className="w-5 h-5" />
+          Baixar Projeto (.zip)
+        </button>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center">
             <span className="text-sm font-medium">CS</span>
