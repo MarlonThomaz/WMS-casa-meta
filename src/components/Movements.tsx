@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Settings, Search, Filter } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowLeftRight, Settings, Search, Filter } from 'lucide-react';
 import { Movement } from '../types';
 import { movements as initialMovements } from '../data';
 
@@ -20,8 +20,8 @@ export default function Movements() {
 
   const getTypeIcon = (type: string) => {
     switch (type) {
-      case 'inbound': return <ArrowDownToLine className="w-4 h-4" />;
-      case 'outbound': return <ArrowUpFromLine className="w-4 h-4" />;
+      case 'inbound': return <ArrowDown className="w-4 h-4" />;
+      case 'outbound': return <ArrowUp className="w-4 h-4" />;
       case 'transfer': return <ArrowLeftRight className="w-4 h-4" />;
       case 'adjustment': return <Settings className="w-4 h-4" />;
       default: return null;
@@ -86,14 +86,14 @@ export default function Movements() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
           <div className="flex items-center gap-2 mb-1">
-            <ArrowDownToLine className="w-4 h-4 text-blue-500" />
+            <ArrowDown className="w-4 h-4 text-blue-500" />
             <span className="text-sm text-slate-500">Entradas</span>
           </div>
           <p className="text-2xl font-bold text-blue-600">{summary.inbound}</p>
         </div>
         <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
           <div className="flex items-center gap-2 mb-1">
-            <ArrowUpFromLine className="w-4 h-4 text-red-500" />
+            <ArrowUp className="w-4 h-4 text-red-500" />
             <span className="text-sm text-slate-500">Saídas</span>
           </div>
           <p className="text-2xl font-bold text-red-600">{summary.outbound}</p>

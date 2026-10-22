@@ -1,129 +1,99 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
-// Importar todos os arquivos como strings usando ?raw do Vite
-import indexHtml from '../index.html?raw';
-import packageJson from '../package.json?raw';
-import tsconfigJson from '../tsconfig.json?raw';
-import viteConfigJs from '../vite.config.js?raw';
-
-import srcMainTsx from './main.tsx?raw';
-import srcAppTsx from './App.tsx?raw';
-import srcIndexCss from './index.css?raw';
-import srcTypesTs from './types.ts?raw';
-import srcDataTs from './data.ts?raw';
-
-import srcComponentsSidebar from './components/Sidebar.tsx?raw';
-import srcComponentsDashboard from './components/Dashboard.tsx?raw';
-import srcComponentsInventory from './components/Inventory.tsx?raw';
-import srcComponentsLocations from './components/Locations.tsx?raw';
-import srcComponentsReceiving from './components/Receiving.tsx?raw';
-import srcComponentsShipping from './components/Shipping.tsx?raw';
-import srcComponentsMovements from './components/Movements.tsx?raw';
-import srcComponentsBarcodeScanner from './components/BarcodeScanner.tsx?raw';
-import srcComponentsBarcodeKit from './components/BarcodeKit.tsx?raw';
-import srcDownloadProject from './downloadProject.ts?raw';
-import srcViteEnvDts from './vite-env.d.ts?raw';
-
-const files: Record<string, string> = {
-  'index.html': indexHtml,
-  'package.json': packageJson,
-  'tsconfig.json': tsconfigJson,
-  'vite.config.js': viteConfigJs,
-  'src/main.tsx': srcMainTsx,
-  'src/App.tsx': srcAppTsx,
-  'src/index.css': srcIndexCss,
-  'src/types.ts': srcTypesTs,
-  'src/data.ts': srcDataTs,
-  'src/components/Sidebar.tsx': srcComponentsSidebar,
-  'src/components/Dashboard.tsx': srcComponentsDashboard,
-  'src/components/Inventory.tsx': srcComponentsInventory,
-  'src/components/Locations.tsx': srcComponentsLocations,
-  'src/components/Receiving.tsx': srcComponentsReceiving,
-  'src/components/Shipping.tsx': srcComponentsShipping,
-  'src/components/Movements.tsx': srcComponentsMovements,
-  'src/components/BarcodeScanner.tsx': srcComponentsBarcodeScanner,
-  'src/components/BarcodeKit.tsx': srcComponentsBarcodeKit,
-  'src/downloadProject.ts': srcDownloadProject,
-  'src/vite-env.d.ts': srcViteEnvDts,
-};
-
 export async function downloadProjectZip() {
   const zip = new JSZip();
 
-  // Adicionar todos os arquivos ao ZIP
-  Object.entries(files).forEach(([path, content]) => {
-    zip.file(path, content);
-  });
+  // Adicionar arquivos principais manualmente
+  zip.file('README.md', `# WMS - Warehouse Management System
 
-  // Adicionar um README
-  const readme = `# WMS - Warehouse Management System
-
-## Descrição
-Sistema de gerenciamento de armazém (WMS) desenvolvido com React, TypeScript, Tailwind CSS e Vite.
+Sistema de gerenciamento de armazém desenvolvido com React, TypeScript, Tailwind CSS e Vite.
 
 ## Funcionalidades
-- **Dashboard**: Visão geral com KPIs, gráficos de movimentações e alertas de estoque baixo
-- **Inventário**: Gestão completa de produtos com CRUD, filtros e busca
-- **Localizações**: Mapa visual do armazém com zonas, corredores e níveis
-- **Recebimento**: Ordens de recebimento com conferência e status
-- **Expedição**: Ordens de expedição com fluxo de separação/embalagem/despacho
-- **Movimentações**: Histórico de todas as movimentações do armazém
-- **Kit Código de Barras**: Leitor via câmera para cadastro de SKUs, transferência de itens e localização de estoque
+- Dashboard com KPIs e gráficos
+- Gestão de inventário
+- Mapa de localizações
+- Recebimento e expedição
+- Kit de leitor de código de barras
 
 ## Como executar
 
 \`\`\`bash
-# Instalar dependências
 npm install
-
-# Executar em desenvolvimento
 npm run dev
-
-# Build para produção
-npm run build
 \`\`\`
+`);
 
-## Tecnologias
-- React 19 + TypeScript
-- Vite 6
-- Tailwind CSS 4
-- Recharts (gráficos)
-- Lucide React (ícones)
-- JSZip (exportação)
-- html5-qrcode (leitor de código de barras)
+  zip.file('package.json', JSON.stringify({
+    name: "wms-projeto",
+    private: true,
+    version: "1.0.0",
+    type: "module",
+    scripts: {
+      dev: "vite",
+      build: "vite build",
+      preview: "vite preview"
+    },
+    dependencies: {
+      "react": "^19.0.0",
+      "react-dom": "^19.0.0",
+      "lucide-react": "^0.468.0",
+      "recharts": "^2.15.0",
+      "jszip": "^3.10.1",
+      "file-saver": "^2.0.5"
+    },
+    devDependencies: {
+      "@types/react": "^19.0.0",
+      "@types/react-dom": "^19.0.0",
+      "@vitejs/plugin-react": "^4.3.4",
+      "typescript": "~5.6.2",
+      "vite": "^6.0.0",
+      "tailwindcss": "^4.0.0",
+      "@tailwindcss/vite": "^4.0.0"
+    }
+  }, null, 2));
 
-## Estrutura do Projeto
-\`\`\`
-├── index.html
-├── package.json
-├── tsconfig.json
-├── vite.config.js
-└── src/
-    ├── main.tsx
-    ├── App.tsx
-    ├── index.css
-    ├── types.ts
-    ├── data.ts
-    ├── downloadProject.ts
-    ├── vite-env.d.ts
-    └── components/
-        ├── Sidebar.tsx
-        ├── Dashboard.tsx
-        ├── Inventory.tsx
-        ├── Locations.tsx
-        ├── Receiving.tsx
-        ├── Shipping.tsx
-        ├── Movements.tsx
-        ├── BarcodeScanner.tsx
-        └── BarcodeKit.tsx
-\`\`\`
+  zip.file('index.html', `<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WMS - Warehouse Management System</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>`);
 
----
-Gerado automatic pelo WMS Pro
-`;
+  zip.file('vite.config.js', `import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
-  zip.file('README.md', readme);
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  server: {
+    host: "0.0.0.0",
+    port: 3000,
+  },
+});`);
+
+  zip.file('tsconfig.json', JSON.stringify({
+    compilerOptions: {
+      target: "ES2020",
+      module: "ESNext",
+      lib: ["ES2020", "DOM", "DOM.Iterable"],
+      jsx: "react-jsx",
+      moduleResolution: "bundler",
+      strict: true,
+      skipLibCheck: true,
+      esModuleInterop: true,
+      isolatedModules: true,
+      noEmit: true,
+      allowImportingTsExtensions: true
+    },
+    include: ["src"]
+  }, null, 2));
 
   // Gerar o ZIP
   const blob = await zip.generateAsync({ type: 'blob' });

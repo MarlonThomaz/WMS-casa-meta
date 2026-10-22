@@ -1,4 +1,4 @@
-import { Package, MapPin, AlertTriangle, TrendingUp, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
+import { Package, MapPin, AlertTriangle, TrendingUp, ArrowDown, ArrowUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import { products, movements, receivingOrders, shippingOrders, locations } from '../data';
 
@@ -16,8 +16,8 @@ export default function Dashboard() {
     { label: 'Itens em Estoque', value: totalItems.toLocaleString('pt-BR'), icon: TrendingUp, color: 'bg-green-500', change: '+12% vs mês anterior' },
     { label: 'Estoque Baixo', value: lowStockProducts.length, icon: AlertTriangle, color: 'bg-amber-500', change: 'Atenção necessária' },
     { label: 'Localizações Ocupadas', value: `${occupiedLocations}/${totalLocations}`, icon: MapPin, color: 'bg-purple-500', change: `${Math.round((occupiedLocations/totalLocations)*100)}% ocupação` },
-    { label: 'Recebimentos Pendentes', value: pendingReceiving, icon: ArrowDownToLine, color: 'bg-cyan-500', change: 'Aguardando doca' },
-    { label: 'Expedições Pendentes', value: pendingShipping, icon: ArrowUpFromLine, color: 'bg-rose-500', change: 'Em processamento' },
+    { label: 'Recebimentos Pendentes', value: pendingReceiving, icon: ArrowDown, color: 'bg-cyan-500', change: 'Aguardando doca' },
+    { label: 'Expedições Pendentes', value: pendingShipping, icon: ArrowUp, color: 'bg-rose-500', change: 'Em processamento' },
   ];
 
   const categoryData = [

@@ -1,4 +1,4 @@
-import { LayoutDashboard, Package, MapPin, Truck, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Warehouse, Download, Barcode } from 'lucide-react';
+import { LayoutDashboard, Package, MapPin, ArrowDown, ArrowUp, ArrowLeftRight, Building2, Download, Box } from 'lucide-react';
 import { Page } from '../types';
 import { downloadProjectZip } from '../downloadProject';
 
@@ -11,10 +11,10 @@ const menuItems = [
   { id: 'dashboard' as Page, label: 'Dashboard', icon: LayoutDashboard },
   { id: 'inventory' as Page, label: 'Inventário', icon: Package },
   { id: 'locations' as Page, label: 'Localizações', icon: MapPin },
-  { id: 'receiving' as Page, label: 'Recebimento', icon: ArrowDownToLine },
-  { id: 'shipping' as Page, label: 'Expedição', icon: ArrowUpFromLine },
+  { id: 'receiving' as Page, label: 'Recebimento', icon: ArrowDown },
+  { id: 'shipping' as Page, label: 'Expedição', icon: ArrowUp },
   { id: 'movements' as Page, label: 'Movimentações', icon: ArrowLeftRight },
-  { id: 'barcode-kit' as Page, label: 'Kit Código de Barras', icon: Barcode },
+  { id: 'barcode-kit' as Page, label: 'Kit Código de Barras', icon: Box },
 ];
 
 export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
@@ -23,7 +23,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
       <div className="p-4 border-b border-slate-700">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-            <Warehouse className="w-6 h-6 text-white" />
+            <Building2 className="w-6 h-6 text-white" />
           </div>
           <div>
             <h1 className="font-bold text-lg">WMS Pro</h1>
