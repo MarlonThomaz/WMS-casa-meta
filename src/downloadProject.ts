@@ -20,6 +20,10 @@ import srcComponentsLocations from './components/Locations.tsx?raw';
 import srcComponentsReceiving from './components/Receiving.tsx?raw';
 import srcComponentsShipping from './components/Shipping.tsx?raw';
 import srcComponentsMovements from './components/Movements.tsx?raw';
+import srcComponentsBarcodeScanner from './components/BarcodeScanner.tsx?raw';
+import srcComponentsBarcodeKit from './components/BarcodeKit.tsx?raw';
+import srcDownloadProject from './downloadProject.ts?raw';
+import srcViteEnvDts from './vite-env.d.ts?raw';
 
 const files: Record<string, string> = {
   'index.html': indexHtml,
@@ -38,6 +42,10 @@ const files: Record<string, string> = {
   'src/components/Receiving.tsx': srcComponentsReceiving,
   'src/components/Shipping.tsx': srcComponentsShipping,
   'src/components/Movements.tsx': srcComponentsMovements,
+  'src/components/BarcodeScanner.tsx': srcComponentsBarcodeScanner,
+  'src/components/BarcodeKit.tsx': srcComponentsBarcodeKit,
+  'src/downloadProject.ts': srcDownloadProject,
+  'src/vite-env.d.ts': srcViteEnvDts,
 };
 
 export async function downloadProjectZip() {
@@ -61,6 +69,7 @@ Sistema de gerenciamento de armazém (WMS) desenvolvido com React, TypeScript, T
 - **Recebimento**: Ordens de recebimento com conferência e status
 - **Expedição**: Ordens de expedição com fluxo de separação/embalagem/despacho
 - **Movimentações**: Histórico de todas as movimentações do armazém
+- **Kit Código de Barras**: Leitor via câmera para cadastro de SKUs, transferência de itens e localização de estoque
 
 ## Como executar
 
@@ -82,6 +91,7 @@ npm run build
 - Recharts (gráficos)
 - Lucide React (ícones)
 - JSZip (exportação)
+- html5-qrcode (leitor de código de barras)
 
 ## Estrutura do Projeto
 \`\`\`
@@ -95,6 +105,8 @@ npm run build
     ├── index.css
     ├── types.ts
     ├── data.ts
+    ├── downloadProject.ts
+    ├── vite-env.d.ts
     └── components/
         ├── Sidebar.tsx
         ├── Dashboard.tsx
@@ -102,7 +114,9 @@ npm run build
         ├── Locations.tsx
         ├── Receiving.tsx
         ├── Shipping.tsx
-        └── Movements.tsx
+        ├── Movements.tsx
+        ├── BarcodeScanner.tsx
+        └── BarcodeKit.tsx
 \`\`\`
 
 ---

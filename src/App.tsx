@@ -6,6 +6,7 @@ import Locations from './components/Locations';
 import Receiving from './components/Receiving';
 import Shipping from './components/Shipping';
 import Movements from './components/Movements';
+import BarcodeKit from './components/BarcodeKit';
 import { Page } from './types';
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
       case 'receiving': return <Receiving />;
       case 'shipping': return <Shipping />;
       case 'movements': return <Movements />;
+      case 'barcode-kit': return <BarcodeKit />;
       default: return <Dashboard />;
     }
   };

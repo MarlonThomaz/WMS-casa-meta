@@ -1,4 +1,4 @@
-import { LayoutDashboard, Package, MapPin, Truck, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Warehouse, Download } from 'lucide-react';
+import { LayoutDashboard, Package, MapPin, Truck, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Warehouse, Download, Barcode } from 'lucide-react';
 import { Page } from '../types';
 import { downloadProjectZip } from '../downloadProject';
 
@@ -14,6 +14,7 @@ const menuItems = [
   { id: 'receiving' as Page, label: 'Recebimento', icon: ArrowDownToLine },
   { id: 'shipping' as Page, label: 'Expedição', icon: ArrowUpFromLine },
   { id: 'movements' as Page, label: 'Movimentações', icon: ArrowLeftRight },
+  { id: 'barcode-kit' as Page, label: 'Kit Código de Barras', icon: Barcode },
 ];
 
 export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
