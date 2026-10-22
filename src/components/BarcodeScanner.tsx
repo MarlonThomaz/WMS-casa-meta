@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
-import { Camera, CameraOff, Upload, X, Loader2 } from 'lucide-react';
+import { Camera, CameraOff, Upload, X } from 'lucide-react';
 
 interface BarcodeScannerProps {
   onScan: (code: string) => void;
@@ -13,30 +12,45 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
   const [error, setError] = useState<string | null>(null);
   const [cameras, setCameras] = useState<{ id: string; label: string }[]>([]);
   const [selectedCamera, setSelectedCamera] = useState<string>('');
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const [manualCode, setManualCode] = useState('');
+  const scannerRef = useRef<any>(null);
   const containerId = useRef(`barcode-scanner-${Math.random().toString(36).substring(7)}`);
 
   useEffect(() => {
-    Html5Qrcode.getCameras()
-      .then((devices) => {
-        if (devices && devices.length) {
+    let mounted = true;
+    
+    const loadCameras = async () => {
+      try {
+        const { Html5Qrcode } = await import('html5-qrcode');
+        const devices = await Html5Qrcode.getCameras();
+        if (mounted && devices && devices.length) {
           setCameras(devices);
-          // Preferir câmera traseira se disponível
-          const backCamera = devices.find(d => 
+          const backCamera = devices.find((d: any) => 
             d.label.toLowerCase().includes('back') || 
             d.label.toLowerCase().includes('traseira') ||
             d.label.toLowerCase().includes('rear')
           );
           setSelectedCamera(backCamera ? backCamera.id : devices[0].id);
         }
-      })
-      .catch((err) => {
-        setError('Não foi possível acessar as câmeras. Verifique as permissões.');
-        console.error(err);
-      });
+      } catch (err) {
+        if (mounted) {
+          console.warn('Câmera não disponível:', err);
+          setError('Câmera não disponível neste dispositivo. Use o campo manual abaixo.');
+        }
+      }
+    };
+
+    loadCameras();
 
     return () => {
-      stopScanning();
+      mounted = false;
+      if (scannerRef.current) {
+        try {
+          scannerRef.current.stop().catch(() => {});
+        } catch (e) {
+          // ignore
+        }
+      }
     };
   }, []);
 
@@ -49,6 +63,8 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
     setError(null);
 
     try {
+      const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode');
+      
       const scanner = new Html5Qrcode(containerId.current, {
         formatsToSupport: [
           Html5QrcodeSupportedFormats.QR_CODE,
@@ -72,15 +88,14 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
           qrbox: compact ? { width: 200, height: 120 } : { width: 280, height: 160 },
           aspectRatio: 1.777,
         },
-        (decodedText) => {
+        (decodedText: string) => {
           onScan(decodedText);
-          // Vibração como feedback (se suportado)
           if (navigator.vibrate) {
             navigator.vibrate(200);
           }
         },
         () => {
-          // Erro de leitura (ignorado - acontece continuamente)
+          // Erro de leitura (ignorado)
         }
       );
 
@@ -93,7 +108,7 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
   };
 
   const stopScanning = async () => {
-    if (scannerRef.current && scannerRef.current.isScanning) {
+    if (scannerRef.current) {
       try {
         await scannerRef.current.stop();
       } catch (e) {
@@ -104,31 +119,39 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
     setScanning(false);
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const scanner = new Html5Qrcode(containerId.current, {
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.QR_CODE,
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-      ],
-      verbose: false,
-    });
-
-    scanner
-      .scanFile(file, true)
-      .then((decodedText) => {
-        onScan(decodedText);
-      })
-      .catch(() => {
-        setError('Não foi possível detectar código de barras na imagem.');
+    try {
+      const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode');
+      
+      const scanner = new Html5Qrcode(containerId.current, {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.QR_CODE,
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+        ],
+        verbose: false,
       });
+
+      const decodedText = await scanner.scanFile(file, true);
+      onScan(decodedText);
+    } catch {
+      setError('Não foi possível detectar código de barras na imagem.');
+    }
+  };
+
+  const handleManualSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (manualCode.trim()) {
+      onScan(manualCode.trim());
+      setManualCode('');
+    }
   };
 
   return (
@@ -215,10 +238,30 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
         </label>
       </div>
 
+      {/* Manual input */}
+      <div className="p-3 border-t border-slate-100">
+        <form onSubmit={handleManualSubmit} className="flex gap-2">
+          <input
+            type="text"
+            value={manualCode}
+            onChange={(e) => setManualCode(e.target.value)}
+            placeholder="Digite o código manualmente..."
+            className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+          />
+          <button
+            type="submit"
+            disabled={!manualCode.trim()}
+            className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Enviar
+          </button>
+        </form>
+      </div>
+
       {/* Error */}
       {error && (
         <div className="px-3 pb-3">
-          <div className="p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600">
+          <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
             {error}
           </div>
         </div>

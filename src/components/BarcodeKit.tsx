@@ -494,7 +494,10 @@ function LocatePanel({ scannedCode }: { scannedCode: string }) {
   useEffect(() => {
     if (scannedCode && scannedCode !== lastScannedRef.current) {
       lastScannedRef.current = scannedCode;
-      handleLocate(scannedCode);
+      const product = initialProducts.find(p => p.sku === scannedCode || p.id === scannedCode);
+      setSearchCode(scannedCode);
+      setFoundProduct(product || null);
+      setSearched(true);
     }
   }, [scannedCode]);
 
