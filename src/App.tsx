@@ -8,6 +8,8 @@ import Receiving from './components/Receiving';
 import Shipping from './components/Shipping';
 import Movements from './components/Movements';
 import BarcodeKit from './components/BarcodeKit';
+import StockCount from './components/StockCount';
+import PilotDashboard from './components/PilotDashboard';
 import Help from './components/Help';
 import Login from './components/Login';
 import { Page } from './types';
@@ -44,6 +46,8 @@ function AppContent() {
       case 'shipping': return <Shipping />;
       case 'movements': return <Movements />;
       case 'barcode-kit': return <BarcodeKit />;
+      case 'stock-count': return <StockCount />;
+      case 'pilot-dashboard': return <PilotDashboard />;
       case 'help': return <Help />;
       default: return <Dashboard />;
     }

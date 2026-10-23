@@ -1,4 +1,4 @@
-import { LayoutDashboard, Package, MapPin, ArrowDown, ArrowUp, ArrowLeftRight, Building2, Download, Box, HelpCircle, LogOut } from 'lucide-react';
+import { LayoutDashboard, Package, MapPin, ArrowDown, ArrowUp, ArrowLeftRight, Building2, Download, Box, HelpCircle, LogOut, ClipboardCheck, Activity } from 'lucide-react';
 import { Page } from '../types';
 import { downloadProjectZip } from '../downloadProject';
 import { useAuth } from '../contexts/AuthContext';
@@ -16,6 +16,8 @@ const menuItems = [
   { id: 'shipping' as Page, label: 'Expedição', icon: ArrowUp },
   { id: 'movements' as Page, label: 'Movimentações', icon: ArrowLeftRight },
   { id: 'barcode-kit' as Page, label: 'Kit Código de Barras', icon: Box },
+  { id: 'stock-count' as Page, label: 'Contagem Física', icon: ClipboardCheck },
+  { id: 'pilot-dashboard' as Page, label: 'Dashboard do Piloto', icon: Activity },
   { id: 'help' as Page, label: 'Ajuda', icon: HelpCircle },
 ];
 
