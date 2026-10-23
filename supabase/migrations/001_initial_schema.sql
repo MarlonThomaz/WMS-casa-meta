@@ -1,13 +1,14 @@
 -- ========================================
--- WMS Casa Meta - Schema Inicial Seguro
--- Migration 001: Estrutura base com RLS completo
+-- WMS Casa Meta - Migration 001
+-- Estrutura Completa do Banco de Dados
 -- ========================================
 
--- Habilitar extensões
+-- Habilitar extensões necessárias
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ========================================
--- SEQUÊNCIAS para geração segura de referências
+-- SEQUÊNCIAS para geração de referências
 -- ========================================
 CREATE SEQUENCE IF NOT EXISTS movement_ref_seq START 1;
 CREATE SEQUENCE IF NOT EXISTS receipt_number_seq START 1;
@@ -127,7 +128,7 @@ CREATE TABLE IF NOT EXISTS movement_lines (
 );
 
 -- ========================================
--- TABELAS: receipts
+-- TABELA: receipts
 -- ========================================
 CREATE TABLE IF NOT EXISTS receipts (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -145,6 +146,9 @@ CREATE TABLE IF NOT EXISTS receipts (
   created_by UUID REFERENCES profiles(id)
 );
 
+-- ========================================
+-- TABELA: receipt_lines
+-- ========================================
 CREATE TABLE IF NOT EXISTS receipt_lines (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   receipt_id UUID NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
@@ -159,7 +163,7 @@ CREATE TABLE IF NOT EXISTS receipt_lines (
 );
 
 -- ========================================
--- TABELAS: shipments
+-- TABELA: shipments
 -- ========================================
 CREATE TABLE IF NOT EXISTS shipments (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -178,6 +182,9 @@ CREATE TABLE IF NOT EXISTS shipments (
   created_by UUID REFERENCES profiles(id)
 );
 
+-- ========================================
+-- TABELA: shipment_lines
+-- ========================================
 CREATE TABLE IF NOT EXISTS shipment_lines (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   shipment_id UUID NOT NULL REFERENCES shipments(id) ON DELETE CASCADE,
@@ -187,12 +194,14 @@ CREATE TABLE IF NOT EXISTS shipment_lines (
   from_location_id UUID REFERENCES locations(id),
   unit TEXT NOT NULL DEFAULT 'un',
   notes TEXT,
+  reservations_released BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT chk_picked_lte_requested CHECK (picked_quantity <= requested_quantity)
 );
 
 -- ========================================
--- TABELAS: stock_counts
+-- TABELA: stock_counts
 -- ========================================
 CREATE TABLE IF NOT EXISTS stock_counts (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -207,6 +216,9 @@ CREATE TABLE IF NOT EXISTS stock_counts (
   created_by UUID REFERENCES profiles(id)
 );
 
+-- ========================================
+-- TABELA: stock_count_lines
+-- ========================================
 CREATE TABLE IF NOT EXISTS stock_count_lines (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   stock_count_id UUID NOT NULL REFERENCES stock_counts(id) ON DELETE CASCADE,
@@ -221,7 +233,7 @@ CREATE TABLE IF NOT EXISTS stock_count_lines (
 );
 
 -- ========================================
--- TABELA: audit_events (NOVA - faltava na revisão)
+-- TABELA: audit_events
 -- ========================================
 CREATE TABLE IF NOT EXISTS audit_events (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -275,7 +287,7 @@ CREATE TRIGGER update_shipment_lines_updated_at BEFORE UPDATE ON shipment_lines
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ========================================
--- TRIGGER para criar perfil automaticamente (NOVO)
+-- TRIGGER para criar perfil automaticamente
 -- ========================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
@@ -297,9 +309,8 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- ========================================
--- ROW LEVEL SECURITY (RLS) - COMPLETO
+-- ROW LEVEL SECURITY (RLS)
 -- ========================================
-
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE product_barcodes ENABLE ROW LEVEL SECURITY;
@@ -322,24 +333,24 @@ RETURNS TEXT AS $$
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
 -- ========================================
--- POLÍTICAS: profiles
+-- POLÍTICAS RLS
 -- ========================================
-DROP POLICY IF EXISTS "profiles_select_own" ON profiles;
-CREATE POLICY "profiles_select_own" ON profiles FOR SELECT
+
+-- Profiles
+DROP POLICY IF EXISTS "profiles_select" ON profiles;
+CREATE POLICY "profiles_select" ON profiles FOR SELECT
   USING (auth.uid() = id OR public.user_role() IN ('admin', 'manager'));
 
-DROP POLICY IF EXISTS "profiles_update_own" ON profiles;
-CREATE POLICY "profiles_update_own" ON profiles FOR UPDATE
+DROP POLICY IF EXISTS "profiles_update_self" ON profiles;
+CREATE POLICY "profiles_update_self" ON profiles FOR UPDATE
   USING (auth.uid() = id)
-  WITH CHECK (auth.uid() = id AND role = (SELECT role FROM profiles WHERE id = auth.uid()));
+  WITH CHECK (auth.uid() = id AND NEW.role = OLD.role);
 
-DROP POLICY IF EXISTS "profiles_insert_admin" ON profiles;
-CREATE POLICY "profiles_insert_admin" ON profiles FOR INSERT
-  WITH CHECK (public.user_role() = 'admin');
+DROP POLICY IF EXISTS "profiles_update_admin" ON profiles;
+CREATE POLICY "profiles_update_admin" ON profiles FOR UPDATE
+  USING (public.user_role() = 'admin');
 
--- ========================================
--- POLÍTICAS: products (leitura para todos, escrita para operadores+)
--- ========================================
+-- Products
 DROP POLICY IF EXISTS "products_select" ON products;
 CREATE POLICY "products_select" ON products FOR SELECT
   USING (auth.role() = 'authenticated');
@@ -352,59 +363,16 @@ DROP POLICY IF EXISTS "products_update" ON products;
 CREATE POLICY "products_update" ON products FOR UPDATE
   USING (public.user_role() IN ('admin', 'manager', 'operator'));
 
-DROP POLICY IF EXISTS "products_delete" ON products;
-CREATE POLICY "products_delete" ON products FOR DELETE
-  USING (public.user_role() IN ('admin', 'manager'));
-
--- ========================================
--- POLÍTICAS: product_barcodes
--- ========================================
-DROP POLICY IF EXISTS "barcodes_select" ON product_barcodes;
-CREATE POLICY "barcodes_select" ON product_barcodes FOR SELECT
-  USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "barcodes_insert" ON product_barcodes;
-CREATE POLICY "barcodes_insert" ON product_barcodes FOR INSERT
-  WITH CHECK (public.user_role() IN ('admin', 'manager', 'operator'));
-
-DROP POLICY IF EXISTS "barcodes_update" ON product_barcodes;
-CREATE POLICY "barcodes_update" ON product_barcodes FOR UPDATE
-  USING (public.user_role() IN ('admin', 'manager', 'operator'));
-
-DROP POLICY IF EXISTS "barcodes_delete" ON product_barcodes;
-CREATE POLICY "barcodes_delete" ON product_barcodes FOR DELETE
-  USING (public.user_role() IN ('admin', 'manager'));
-
--- ========================================
--- POLÍTICAS: locations
--- ========================================
-DROP POLICY IF EXISTS "locations_select" ON locations;
-CREATE POLICY "locations_select" ON locations FOR SELECT
-  USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "locations_insert" ON locations;
-CREATE POLICY "locations_insert" ON locations FOR INSERT
-  WITH CHECK (public.user_role() IN ('admin', 'manager'));
-
-DROP POLICY IF EXISTS "locations_update" ON locations;
-CREATE POLICY "locations_update" ON locations FOR UPDATE
-  USING (public.user_role() IN ('admin', 'manager', 'operator'));
-
--- ========================================
--- POLÍTICAS: stock_balances (leitura para todos, escrita apenas via funções)
--- ========================================
+-- Stock Balances (leitura para todos, escrita apenas via funções)
 DROP POLICY IF EXISTS "stock_balances_select" ON stock_balances;
 CREATE POLICY "stock_balances_select" ON stock_balances FOR SELECT
   USING (auth.role() = 'authenticated');
 
--- Escrita apenas via funções SECURITY DEFINER
-DROP POLICY IF EXISTS "stock_balances_service_write" ON stock_balances;
-CREATE POLICY "stock_balances_service_write" ON stock_balances FOR ALL
-  USING (auth.uid() IS NOT NULL);
+DROP POLICY IF EXISTS "stock_balances_write" ON stock_balances;
+CREATE POLICY "stock_balances_write" ON stock_balances FOR ALL
+  USING (false); -- Apenas via funções SECURITY DEFINER
 
--- ========================================
--- POLÍTICAS: movements (leitura para todos, escrita para operadores+)
--- ========================================
+-- Movements
 DROP POLICY IF EXISTS "movements_select" ON movements;
 CREATE POLICY "movements_select" ON movements FOR SELECT
   USING (auth.role() = 'authenticated');
@@ -413,24 +381,7 @@ DROP POLICY IF EXISTS "movements_insert" ON movements;
 CREATE POLICY "movements_insert" ON movements FOR INSERT
   WITH CHECK (public.user_role() IN ('admin', 'manager', 'operator') AND created_by = auth.uid());
 
-DROP POLICY IF EXISTS "movements_update" ON movements;
-CREATE POLICY "movements_update" ON movements FOR UPDATE
-  USING (public.user_role() IN ('admin', 'manager', 'operator'));
-
--- ========================================
--- POLÍTICAS: movement_lines
--- ========================================
-DROP POLICY IF EXISTS "movement_lines_select" ON movement_lines;
-CREATE POLICY "movement_lines_select" ON movement_lines FOR SELECT
-  USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "movement_lines_insert" ON movement_lines;
-CREATE POLICY "movement_lines_insert" ON movement_lines FOR INSERT
-  WITH CHECK (public.user_role() IN ('admin', 'manager', 'operator'));
-
--- ========================================
--- POLÍTICAS: receipts
--- ========================================
+-- Receipts
 DROP POLICY IF EXISTS "receipts_select" ON receipts;
 CREATE POLICY "receipts_select" ON receipts FOR SELECT
   USING (auth.role() = 'authenticated');
@@ -439,28 +390,7 @@ DROP POLICY IF EXISTS "receipts_insert" ON receipts;
 CREATE POLICY "receipts_insert" ON receipts FOR INSERT
   WITH CHECK (public.user_role() IN ('admin', 'manager', 'operator') AND created_by = auth.uid());
 
-DROP POLICY IF EXISTS "receipts_update" ON receipts;
-CREATE POLICY "receipts_update" ON receipts FOR UPDATE
-  USING (public.user_role() IN ('admin', 'manager', 'operator'));
-
--- ========================================
--- POLÍTICAS: receipt_lines
--- ========================================
-DROP POLICY IF EXISTS "receipt_lines_select" ON receipt_lines;
-CREATE POLICY "receipt_lines_select" ON receipt_lines FOR SELECT
-  USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "receipt_lines_insert" ON receipt_lines;
-CREATE POLICY "receipt_lines_insert" ON receipt_lines FOR INSERT
-  WITH CHECK (public.user_role() IN ('admin', 'manager', 'operator'));
-
-DROP POLICY IF EXISTS "receipt_lines_update" ON receipt_lines;
-CREATE POLICY "receipt_lines_update" ON receipt_lines FOR UPDATE
-  USING (public.user_role() IN ('admin', 'manager', 'operator'));
-
--- ========================================
--- POLÍTICAS: shipments
--- ========================================
+-- Shipments
 DROP POLICY IF EXISTS "shipments_select" ON shipments;
 CREATE POLICY "shipments_select" ON shipments FOR SELECT
   USING (auth.role() = 'authenticated');
@@ -469,28 +399,7 @@ DROP POLICY IF EXISTS "shipments_insert" ON shipments;
 CREATE POLICY "shipments_insert" ON shipments FOR INSERT
   WITH CHECK (public.user_role() IN ('admin', 'manager', 'operator') AND created_by = auth.uid());
 
-DROP POLICY IF EXISTS "shipments_update" ON shipments;
-CREATE POLICY "shipments_update" ON shipments FOR UPDATE
-  USING (public.user_role() IN ('admin', 'manager', 'operator'));
-
--- ========================================
--- POLÍTICAS: shipment_lines
--- ========================================
-DROP POLICY IF EXISTS "shipment_lines_select" ON shipment_lines;
-CREATE POLICY "shipment_lines_select" ON shipment_lines FOR SELECT
-  USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "shipment_lines_insert" ON shipment_lines;
-CREATE POLICY "shipment_lines_insert" ON shipment_lines FOR INSERT
-  WITH CHECK (public.user_role() IN ('admin', 'manager', 'operator'));
-
-DROP POLICY IF EXISTS "shipment_lines_update" ON shipment_lines;
-CREATE POLICY "shipment_lines_update" ON shipment_lines FOR UPDATE
-  USING (public.user_role() IN ('admin', 'manager', 'operator'));
-
--- ========================================
--- POLÍTICAS: stock_counts
--- ========================================
+-- Stock Counts
 DROP POLICY IF EXISTS "stock_counts_select" ON stock_counts;
 CREATE POLICY "stock_counts_select" ON stock_counts FOR SELECT
   USING (auth.role() = 'authenticated');
@@ -499,37 +408,11 @@ DROP POLICY IF EXISTS "stock_counts_insert" ON stock_counts;
 CREATE POLICY "stock_counts_insert" ON stock_counts FOR INSERT
   WITH CHECK (public.user_role() IN ('admin', 'manager', 'operator') AND created_by = auth.uid());
 
-DROP POLICY IF EXISTS "stock_counts_update" ON stock_counts;
-CREATE POLICY "stock_counts_update" ON stock_counts FOR UPDATE
-  USING (public.user_role() IN ('admin', 'manager', 'operator'));
-
--- ========================================
--- POLÍTICAS: stock_count_lines
--- ========================================
-DROP POLICY IF EXISTS "stock_count_lines_select" ON stock_count_lines;
-CREATE POLICY "stock_count_lines_select" ON stock_count_lines FOR SELECT
-  USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "stock_count_lines_insert" ON stock_count_lines;
-CREATE POLICY "stock_count_lines_insert" ON stock_count_lines FOR INSERT
-  WITH CHECK (public.user_role() IN ('admin', 'manager', 'operator'));
-
-DROP POLICY IF EXISTS "stock_count_lines_update" ON stock_count_lines;
-CREATE POLICY "stock_count_lines_update" ON stock_count_lines FOR UPDATE
-  USING (public.user_role() IN ('admin', 'manager', 'operator'));
-
--- ========================================
--- POLÍTICAS: audit_events (apenas leitura para operadores, escrita via funções)
--- ========================================
+-- Audit Events
 DROP POLICY IF EXISTS "audit_events_select" ON audit_events;
 CREATE POLICY "audit_events_select" ON audit_events FOR SELECT
   USING (public.user_role() IN ('admin', 'manager'));
 
-DROP POLICY IF EXISTS "audit_events_insert_service" ON audit_events;
-CREATE POLICY "audit_events_insert_service" ON audit_events FOR INSERT
-  WITH CHECK (true);
-
--- ========================================
--- RESTRINGIR EXECUÇÃO DAS FUNÇÕES (serão criadas na migration 002)
--- ========================================
--- Isso será configurado após criar as funções
+DROP POLICY IF EXISTS "audit_events_insert" ON audit_events;
+CREATE POLICY "audit_events_insert" ON audit_events FOR INSERT
+  WITH CHECK (true); -- Apenas via funções SECURITY DEFINER
