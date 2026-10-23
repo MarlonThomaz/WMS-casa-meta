@@ -24,10 +24,41 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: TypeScript
-        run: npm run typecheck
+        id: typecheck
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee ci-typecheck.log
 
       - name: Production build
-        run: npm run build
+        id: build
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee ci-build.log
+
+      - name: Upload web diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-diagnostics
+          path: |
+            ci-typecheck.log
+            ci-build.log
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Enforce web checks
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.typecheck.outcome }}" != "success" ] || [ "${{ steps.build.outcome }}" != "success" ]; then
+            echo "TypeScript outcome: ${{ steps.typecheck.outcome }}"
+            echo "Build outcome: ${{ steps.build.outcome }}"
+            exit 1
+          fi
 
   migrations:
     runs-on: ubuntu-latest
