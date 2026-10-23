@@ -197,7 +197,8 @@ jobs:
             ('10000000-0000-0000-0000-000000000001', 'admin@round8.test', '{}'::jsonb, 'authenticated', 'authenticated'),
             ('10000000-0000-0000-0000-000000000002', 'operator@round8.test', '{}'::jsonb, 'authenticated', 'authenticated'),
             ('10000000-0000-0000-0000-000000000003', 'viewer@round8.test', '{}'::jsonb, 'authenticated', 'authenticated'),
-            ('10000000-0000-0000-0000-000000000004', 'disabled@round8.test', '{}'::jsonb, 'authenticated', 'authenticated');
+            ('10000000-0000-0000-0000-000000000004', 'disabled@round8.test', '{}'::jsonb, 'authenticated', 'authenticated'),
+            ('10000000-0000-0000-0000-000000000005', 'manager@round8.test', '{}'::jsonb, 'authenticated', 'authenticated');
 
           SELECT set_config('request.jwt.claims', '{"role":"service_role"}', false);
           UPDATE public.profiles SET role = 'admin', active = true
@@ -208,8 +209,36 @@ jobs:
            WHERE id = '10000000-0000-0000-0000-000000000003';
           UPDATE public.profiles SET role = 'operator', active = false
            WHERE id = '10000000-0000-0000-0000-000000000004';
+          UPDATE public.profiles SET role = 'manager', active = true
+           WHERE id = '10000000-0000-0000-0000-000000000005';
           SQL
 
       - name: Execute core transactional regressions
         shell: bash
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/regression_tests_round8_core.sql
+
+      - name: Prepare authenticated grants for RLS simulation
+        shell: bash
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT USAGE ON SCHEMA public TO authenticated;
+          GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated;
+          GRANT INSERT, UPDATE, DELETE ON
+            public.products,
+            public.product_barcodes,
+            public.locations,
+            public.movements,
+            public.movement_lines,
+            public.receipts,
+            public.receipt_lines,
+            public.shipments,
+            public.shipment_lines,
+            public.stock_counts,
+            public.stock_count_lines
+          TO authenticated;
+          GRANT UPDATE ON public.profiles TO authenticated;
+          SQL
+
+      - name: Execute authenticated RLS regressions
+        shell: bash
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/rls_tests_round8.sql
