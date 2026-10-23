@@ -30,7 +30,6 @@ export type StockCountWithLines = StockCount & {
   lines: StockCountLine[];
 };
 
-// Criar nova contagem
 export async function createStockCount(params: {
   count_type: StockCount['count_type'];
   location_id?: string;
@@ -38,20 +37,22 @@ export async function createStockCount(params: {
   notes?: string;
 }): Promise<StockCount> {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  
-  const { data: countNumber, error: refError } = await supabase
-    .rpc('generate_count_number');
 
+  const { data: countNumber, error: refError } = await supabase.rpc('generate_count_number');
   if (refError) throw new Error(`Erro ao gerar número: ${refError.message}`);
 
   const { data, error } = await supabase
     .from('stock_counts')
-    .insert([{
-      ...params,
-      count_number: countNumber as string,
-      status: 'pending',
-      created_by: params.operator_id,
-    }])
+    .insert([
+      {
+        count_type: params.count_type,
+        location_id: params.location_id,
+        operator_id: params.operator_id,
+        notes: params.notes,
+        count_number: countNumber as string,
+        status: 'pending',
+      },
+    ])
     .select()
     .single();
 
@@ -59,15 +60,13 @@ export async function createStockCount(params: {
   return data as StockCount;
 }
 
-// Adicionar linha à contagem
 export async function addStockCountLine(line: {
   stock_count_id: string;
   product_id: string;
   location_id: string;
 }): Promise<StockCountLine> {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  
-  // Buscar quantidade do sistema
+
   const { data: balanceData, error: balanceError } = await supabase
     .from('stock_balances')
     .select('quantity')
@@ -75,19 +74,18 @@ export async function addStockCountLine(line: {
     .eq('location_id', line.location_id)
     .maybeSingle();
 
-  if (balanceError && balanceError.code !== 'PGRST116') {
-    throw new Error(`Erro ao buscar saldo: ${balanceError.message}`);
-  }
-
-  const systemQuantity = (balanceData as any)?.quantity || 0;
+  if (balanceError) throw new Error(`Erro ao buscar saldo: ${balanceError.message}`);
+  const systemQuantity = Number(balanceData?.quantity ?? 0);
 
   const { data, error } = await supabase
     .from('stock_count_lines')
-    .insert([{
-      ...line,
-      system_quantity: systemQuantity,
-      counted_quantity: systemQuantity,
-    }])
+    .insert([
+      {
+        ...line,
+        system_quantity: systemQuantity,
+        counted_quantity: systemQuantity,
+      },
+    ])
     .select()
     .single();
 
@@ -95,18 +93,16 @@ export async function addStockCountLine(line: {
   return data as StockCountLine;
 }
 
-// Atualizar quantidade contada
 export async function updateCountedQuantity(
   lineId: string,
   countedQuantity: number,
   notes?: string
 ): Promise<void> {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  
-  if (countedQuantity < 0) {
+  if (!Number.isFinite(countedQuantity) || countedQuantity < 0) {
     throw new Error('Quantidade contada não pode ser negativa');
   }
-  
+
   const { error } = await supabase
     .from('stock_count_lines')
     .update({
@@ -119,71 +115,56 @@ export async function updateCountedQuantity(
   if (error) throw new Error(`Erro ao atualizar quantidade: ${error.message}`);
 }
 
-// Iniciar contagem
 export async function startStockCount(countId: string): Promise<void> {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  
+
   const { error } = await supabase
     .from('stock_counts')
     .update({ status: 'in_progress' })
     .eq('id', countId)
-    .eq('status', 'pending'); // Só pode iniciar se estiver pendente
+    .eq('status', 'pending');
 
   if (error) throw new Error(`Erro ao iniciar contagem: ${error.message}`);
 }
 
-// CORREÇÃO: Concluir contagem usando função SQL atômica
-// Não cria movimentações manualmente - a função SQL faz isso
 export async function completeStockCount(countId: string): Promise<{
   adjustments: number;
+  discrepancies: number;
 }> {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  
-  // Usar função SQL atômica que:
-  // 1. Valida status da contagem
-  // 2. Cria movimentações de ajuste com reference obrigatório
-  // 3. Atualiza estoque
-  // 4. Finaliza a contagem
+
   const { error } = await supabase.rpc('process_stock_count_adjustments', {
     p_count_id: countId,
   });
 
-  if (error) {
-    throw new Error(`Erro ao concluir contagem: ${error.message}`);
-  }
-  
-  // Contar quantos ajustes foram feitos
+  if (error) throw new Error(`Erro ao concluir contagem: ${error.message}`);
+
   const { data: lines, error: linesError } = await supabase
     .from('stock_count_lines')
     .select('difference')
     .eq('stock_count_id', countId);
-    
-  if (linesError) {
-    throw new Error(`Erro ao buscar linhas: ${linesError.message}`);
-  }
-  
-  const adjustments = lines?.filter(l => l.difference !== 0).length || 0;
-  
-  return { adjustments };
+
+  if (linesError) throw new Error(`Erro ao buscar linhas: ${linesError.message}`);
+
+  const discrepancies = (lines || []).filter((line) => Number(line.difference) !== 0).length;
+  return { adjustments: discrepancies, discrepancies };
 }
 
-// Cancelar contagem
 export async function cancelStockCount(countId: string): Promise<void> {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  
+
   const { error } = await supabase
     .from('stock_counts')
     .update({ status: 'cancelled' })
     .eq('id', countId)
-    .in('status', ['pending', 'in_progress']); // Só pode cancelar se não estiver concluída
+    .in('status', ['pending', 'in_progress']);
 
   if (error) throw new Error(`Erro ao cancelar contagem: ${error.message}`);
 }
 
-// Buscar contagem por ID com linhas
 export async function getStockCountById(id: string): Promise<StockCountWithLines | null> {
   if (!isSupabaseConfigured) return null;
-  
+
   const { data: count, error: countError } = await supabase
     .from('stock_counts')
     .select('*')
@@ -194,7 +175,6 @@ export async function getStockCountById(id: string): Promise<StockCountWithLines
     if (countError.code === 'PGRST116') return null;
     throw new Error(`Erro ao buscar contagem: ${countError.message}`);
   }
-  if (!count) return null;
 
   const { data: lines, error: linesError } = await supabase
     .from('stock_count_lines')
@@ -209,10 +189,9 @@ export async function getStockCountById(id: string): Promise<StockCountWithLines
   };
 }
 
-// Buscar todas as contagens
 export async function getStockCounts(limit = 100): Promise<StockCount[]> {
   if (!isSupabaseConfigured) return [];
-  
+
   const { data, error } = await supabase
     .from('stock_counts')
     .select('*')
@@ -223,10 +202,9 @@ export async function getStockCounts(limit = 100): Promise<StockCount[]> {
   return (data || []) as StockCount[];
 }
 
-// Buscar contagens por status
 export async function getStockCountsByStatus(status: StockCount['status']): Promise<StockCount[]> {
   if (!isSupabaseConfigured) return [];
-  
+
   const { data, error } = await supabase
     .from('stock_counts')
     .select('*')
@@ -237,44 +215,32 @@ export async function getStockCountsByStatus(status: StockCount['status']): Prom
   return (data || []) as StockCount[];
 }
 
-// Estatísticas de contagens
 export async function getStockCountStats() {
   if (!isSupabaseConfigured) {
-    return { byStatus: { pending: 0, in_progress: 0, completed: 0, cancelled: 0 }, byType: { full: 0, cycle: 0, spot: 0, reconciliation: 0 }, total: 0 };
+    return {
+      byStatus: { pending: 0, in_progress: 0, completed: 0, cancelled: 0 },
+      byType: { full: 0, cycle: 0, spot: 0, reconciliation: 0 },
+      total: 0,
+    };
   }
-  
-  const { data, error } = await supabase
-    .from('stock_counts')
-    .select('status, count_type');
 
+  const { data, error } = await supabase.from('stock_counts').select('status, count_type');
   if (error) throw new Error(`Erro ao buscar estatísticas: ${error.message}`);
 
-  const byStatus = {
-    pending: 0,
-    in_progress: 0,
-    completed: 0,
-    cancelled: 0,
-  };
+  const byStatus = { pending: 0, in_progress: 0, completed: 0, cancelled: 0 };
+  const byType = { full: 0, cycle: 0, spot: 0, reconciliation: 0 };
 
-  const byType = {
-    full: 0,
-    cycle: 0,
-    spot: 0,
-    reconciliation: 0,
-  };
-
-  (data || []).forEach((c: any) => {
-    byStatus[c.status as keyof typeof byStatus]++;
-    byType[c.count_type as keyof typeof byType]++;
-  });
+  for (const count of data || []) {
+    byStatus[count.status as keyof typeof byStatus]++;
+    byType[count.count_type as keyof typeof byType]++;
+  }
 
   return { byStatus, byType, total: data?.length || 0 };
 }
 
-// Buscar linhas de contagem com detalhes
 export async function getStockCountLinesWithDetails(countId: string) {
   if (!isSupabaseConfigured) return [];
-  
+
   const { data, error } = await supabase
     .from('stock_count_lines')
     .select(`
@@ -288,34 +254,25 @@ export async function getStockCountLinesWithDetails(countId: string) {
   return data || [];
 }
 
-// Calcular precisão do inventário
 export async function getInventoryAccuracy(locationId?: string) {
   if (!isSupabaseConfigured) {
     return { accuracy: 100, total_lines: 0, accurate_lines: 0, discrepancies: 0 };
   }
-  
-  let query = supabase
-    .from('stock_count_lines')
-    .select('system_quantity, counted_quantity');
 
-  if (locationId) {
-    query = query.eq('location_id', locationId);
-  }
+  let query = supabase.from('stock_count_lines').select('system_quantity, counted_quantity');
+  if (locationId) query = query.eq('location_id', locationId);
 
   const { data, error } = await query;
-
   if (error) throw new Error(`Erro ao calcular precisão: ${error.message}`);
+
   if (!data || data.length === 0) {
-    return {
-      accuracy: 100,
-      total_lines: 0,
-      accurate_lines: 0,
-      discrepancies: 0,
-    };
+    return { accuracy: 100, total_lines: 0, accurate_lines: 0, discrepancies: 0 };
   }
 
-  const accurateLines = data.filter((l: any) => l.system_quantity === l.counted_quantity).length;
-  const discrepancies = data.filter((l: any) => l.system_quantity !== l.counted_quantity).length;
+  const accurateLines = data.filter(
+    (line) => Number(line.system_quantity) === Number(line.counted_quantity)
+  ).length;
+  const discrepancies = data.length - accurateLines;
 
   return {
     accuracy: (accurateLines / data.length) * 100,
