@@ -16,33 +16,22 @@ import Help from './components/Help';
 
 function renderPage(page: Page) {
   switch (page) {
-    case 'dashboard':
-      return <Dashboard />;
-    case 'inventory':
-      return <Inventory />;
-    case 'locations':
-      return <Locations />;
-    case 'receiving':
-      return <Receiving />;
-    case 'shipping':
-      return <Shipping />;
-    case 'movements':
-      return <Movements />;
-    case 'barcode-kit':
-      return <BarcodeKit />;
-    case 'stock-count':
-      return <StockCount />;
-    case 'pilot-dashboard':
-      return <PilotDashboard />;
-    case 'help':
-      return <Help />;
-    default:
-      return <Dashboard />;
+    case 'dashboard': return <Dashboard />;
+    case 'inventory': return <Inventory />;
+    case 'locations': return <Locations />;
+    case 'receiving': return <Receiving />;
+    case 'shipping': return <Shipping />;
+    case 'movements': return <Movements />;
+    case 'barcode-kit': return <BarcodeKit />;
+    case 'stock-count': return <StockCount />;
+    case 'pilot-dashboard': return <PilotDashboard />;
+    case 'help': return <Help />;
+    default: return <Dashboard />;
   }
 }
 
 export default function App() {
-  const { user, loading } = useAuth();
+  const { user, loading, isDemo } = useAuth();
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
 
   if (loading) {
@@ -56,14 +45,17 @@ export default function App() {
     );
   }
 
-  if (!user) {
-    return <Login />;
-  }
+  if (!user) return <Login />;
 
   return (
     <div className="min-h-screen bg-slate-100 flex">
       <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
       <main className="flex-1 min-w-0 overflow-auto">
+        {isDemo && (
+          <div className="sticky top-0 z-40 bg-amber-100 border-b border-amber-300 px-4 py-2 text-center text-xs sm:text-sm text-amber-900">
+            <strong>DEMO ISOLADA:</strong> dados fictícios em memória. Você pode testar cadastros e fluxos; tudo volta ao estado inicial ao recarregar a página.
+          </div>
+        )}
         {renderPage(currentPage)}
       </main>
     </div>
