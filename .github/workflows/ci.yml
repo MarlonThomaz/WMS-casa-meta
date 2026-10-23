@@ -182,5 +182,34 @@ jobs:
             IF to_regprocedure('public.create_and_process_movement(text,text,text,jsonb)') IS NULL THEN
               RAISE EXCEPTION 'create_and_process_movement missing';
             END IF;
+            IF to_regprocedure('public.create_stock_count_with_snapshot(text,uuid,text)') IS NULL THEN
+              RAISE EXCEPTION 'create_stock_count_with_snapshot missing';
+            END IF;
           END $$;
           SQL
+
+      - name: Prepare disposable authorization fixtures
+        shell: bash
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth.users (id, email, raw_user_meta_data, aud, role)
+          VALUES
+            ('10000000-0000-0000-0000-000000000001', 'admin@round8.test', '{}'::jsonb, 'authenticated', 'authenticated'),
+            ('10000000-0000-0000-0000-000000000002', 'operator@round8.test', '{}'::jsonb, 'authenticated', 'authenticated'),
+            ('10000000-0000-0000-0000-000000000003', 'viewer@round8.test', '{}'::jsonb, 'authenticated', 'authenticated'),
+            ('10000000-0000-0000-0000-000000000004', 'disabled@round8.test', '{}'::jsonb, 'authenticated', 'authenticated');
+
+          SELECT set_config('request.jwt.claims', '{"role":"service_role"}', false);
+          UPDATE public.profiles SET role = 'admin', active = true
+           WHERE id = '10000000-0000-0000-0000-000000000001';
+          UPDATE public.profiles SET role = 'operator', active = true
+           WHERE id = '10000000-0000-0000-0000-000000000002';
+          UPDATE public.profiles SET role = 'viewer', active = true
+           WHERE id = '10000000-0000-0000-0000-000000000003';
+          UPDATE public.profiles SET role = 'operator', active = false
+           WHERE id = '10000000-0000-0000-0000-000000000004';
+          SQL
+
+      - name: Execute core transactional regressions
+        shell: bash
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/regression_tests_round8_core.sql
