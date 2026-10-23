@@ -73,13 +73,11 @@ export async function getMovementById(id: string): Promise<MovementWithDetails |
     .order('created_at');
 
   if (linesError) throw linesError;
-
   return { ...movement, lines: lines || [] };
 }
 
 export async function createAndProcessMovement(params: {
-  movement_type: DBMovement['movement_type'];
-  operator_id?: string;
+  movement_type: Exclude<DBMovement['movement_type'], 'count'>;
   source_reference?: string;
   notes?: string;
   lines: Array<{
@@ -94,58 +92,24 @@ export async function createAndProcessMovement(params: {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
   if (params.lines.length === 0) throw new Error('Movimentação precisa ter ao menos uma linha');
 
-  const { data: reference, error: refError } = await supabase.rpc(
-    'generate_movement_reference',
-    { p_type: params.movement_type }
-  );
-
-  if (refError) throw refError;
-
-  const { data: movement, error: movementError } = await supabase
-    .from('movements')
-    .insert([
-      {
-        reference,
-        movement_type: params.movement_type,
-        status: 'pending',
-        operator_id: params.operator_id,
-        source_reference: params.source_reference,
-        notes: params.notes,
-        created_by: params.operator_id,
-      },
-    ])
-    .select()
-    .single();
-
-  if (movementError) throw movementError;
-
   for (const line of params.lines) {
-    if (line.quantity <= 0) throw new Error('Quantidade deve ser maior que zero');
-
-    const { error: lineError } = await supabase.from('movement_lines').insert([
-      {
-        movement_id: movement.id,
-        product_id: line.product_id,
-        from_location_id: line.from_location_id,
-        to_location_id: line.to_location_id,
-        quantity: line.quantity,
-        unit: line.unit || 'un',
-        notes: line.notes,
-      },
-    ]);
-
-    if (lineError) throw lineError;
+    if (!Number.isFinite(line.quantity) || line.quantity <= 0) {
+      throw new Error('Quantidade deve ser maior que zero');
+    }
   }
 
-  const { error: processError } = await supabase.rpc('process_stock_movement', {
-    p_movement_id: movement.id,
-    p_operator_id: params.operator_id,
+  const { data: movementId, error } = await supabase.rpc('create_and_process_movement', {
+    p_movement_type: params.movement_type,
+    p_source_reference: params.source_reference || null,
+    p_notes: params.notes || null,
+    p_lines: params.lines,
   });
 
-  if (processError) throw processError;
+  if (error) throw error;
+  if (!movementId) throw new Error('Banco não retornou o ID da movimentação');
 
-  const result = await getMovementById(movement.id);
-  if (!result) throw new Error('Erro ao buscar movimentação após processamento');
+  const result = await getMovementById(movementId as string);
+  if (!result) throw new Error('Movimentação criada, mas não pôde ser recarregada');
 
   return result;
 }
