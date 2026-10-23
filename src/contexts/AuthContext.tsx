@@ -1,6 +1,11 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { supabase, User, isSupabaseConfigured } from '../lib/supabase';
 import { Session } from '@supabase/supabase-js';
+import {
+  supabase,
+  User,
+  isSupabaseConfigured,
+  isDemoMode,
+} from '../lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -12,10 +17,9 @@ interface AuthContextType {
   isDemo: boolean;
 }
 
-// Usuário demo para quando o Supabase não está configurado
 const DEMO_USER: User = {
   id: 'demo-user-id',
-  email: 'demo@casameta.com',
+  email: 'demo@casameta.local',
   full_name: 'Usuário Demo',
   role: 'admin',
 };
@@ -28,69 +32,87 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Se Supabase não está configurado, usar usuário demo
-    // IMPORTANTE: Isso só acontece quando NÃO há configuração, não quando há falha
     if (!isSupabaseConfigured) {
-      setUser(DEMO_USER);
+      setSession(null);
+      setUser(isDemoMode ? DEMO_USER : null);
       setLoading(false);
       return;
     }
 
-    // Verificar sessão atual
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
-        loadUserProfile(session.user.id);
-      } else {
-        setLoading(false);
-      }
-    }).catch((error) => {
-      // CORREÇÃO: Falha de autenticação NÃO deve resultar em usuário demo
-      // quando Supabase está configurado
-      console.error('Erro ao verificar sessão:', error);
-      setUser(null);
-      setLoading(false);
-    });
+    let mounted = true;
 
-    // Listener para mudanças de autenticação
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session?.user) {
-        loadUserProfile(session.user.id);
+    const bootstrap = async () => {
+      try {
+        const {
+          data: { session: currentSession },
+          error,
+        } = await supabase.auth.getSession();
+
+        if (error) throw error;
+        if (!mounted) return;
+
+        setSession(currentSession);
+        if (currentSession?.user) {
+          await loadUserProfile(currentSession.user.id);
+        } else {
+          setUser(null);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Erro ao verificar sessão:', error);
+        if (mounted) {
+          setSession(null);
+          setUser(null);
+          setLoading(false);
+        }
+      }
+    };
+
+    void bootstrap();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!mounted) return;
+
+      setSession(nextSession);
+      if (nextSession?.user) {
+        setLoading(true);
+        void loadUserProfile(nextSession.user.id);
       } else {
         setUser(null);
         setLoading(false);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   async function loadUserProfile(userId: string) {
     try {
       const { data: profile, error } = await supabase
         .from('profiles')
-        .select('id, email, full_name, role')
+        .select('id, email, full_name, role, active')
         .eq('id', userId)
+        .eq('active', true)
         .single();
 
-      if (error) {
-        console.error('Erro ao carregar perfil:', error);
-        // Se não encontrar perfil, usar dados básicos do usuário auth
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          setUser({
-            id: user.id,
-            email: user.email || '',
-            full_name: (user.user_metadata as any)?.full_name || user.email?.split('@')[0] || 'Usuário',
-            role: 'operator',
-          });
-        }
-      } else {
-        setUser(profile);
-      }
+      if (error) throw error;
+      if (!profile) throw new Error('Perfil ativo não encontrado');
+
+      setUser({
+        id: profile.id,
+        email: profile.email,
+        full_name: profile.full_name || undefined,
+        role: profile.role,
+      });
     } catch (error) {
-      console.error('Erro ao carregar perfil:', error);
+      // Falha fechada: não inventar role de operator quando o perfil não existe,
+      // está desativado ou a RLS rejeita a leitura.
+      console.error('Falha ao carregar perfil ativo:', error);
       setUser(null);
     } finally {
       setLoading(false);
@@ -98,74 +120,79 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signIn(email: string, password: string) {
-    // Modo demo - aceitar qualquer credencial
-    if (!isSupabaseConfigured) {
-      if (email && password) {
-        setUser({
-          ...DEMO_USER,
-          email: email,
-          full_name: email.split('@')[0],
-        });
-        return;
-      }
-      throw new Error('Email e senha são obrigatórios');
+    if (isDemoMode) {
+      if (!email || !password) throw new Error('Email e senha são obrigatórios');
+      setUser({
+        ...DEMO_USER,
+        email,
+        full_name: email.split('@')[0] || 'Usuário Demo',
+      });
+      return;
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    if (!isSupabaseConfigured) {
+      throw new Error(
+        'Supabase não configurado. Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.'
+      );
+    }
 
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
   }
 
   async function signUp(email: string, password: string, fullName: string) {
-    if (!isSupabaseConfigured) {
-      setUser({
-        ...DEMO_USER,
-        email: email,
-        full_name: fullName,
-      });
+    if (isDemoMode) {
+      setUser({ ...DEMO_USER, email, full_name: fullName });
       return;
+    }
+
+    if (!isSupabaseConfigured) {
+      throw new Error(
+        'Supabase não configurado. Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.'
+      );
     }
 
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: {
-          full_name: fullName,
-        },
-      },
+      options: { data: { full_name: fullName } },
     });
 
     if (error) throw error;
-    
-    // Nota: O perfil será criado automaticamente pela trigger no banco
   }
 
   async function signOut() {
+    if (isDemoMode) {
+      setUser(null);
+      setSession(null);
+      return;
+    }
+
     if (!isSupabaseConfigured) {
       setUser(null);
+      setSession(null);
       return;
     }
 
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
+
     setUser(null);
     setSession(null);
   }
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      session, 
-      loading, 
-      signIn, 
-      signUp, 
-      signOut,
-      isDemo: !isSupabaseConfigured,
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        session,
+        loading,
+        signIn,
+        signUp,
+        signOut,
+        isDemo: isDemoMode,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -173,7 +200,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
