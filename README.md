@@ -96,16 +96,7 @@ npm run typecheck
 npm run build
 ```
 
-A pull request também executa GitHub Actions para:
-
-- TypeScript;
-- build de produção;
-- versões duplicadas de migrations;
-- padrões inválidos de RLS;
-- aplicação integral das migrations em PostgreSQL isolado;
-- existência das RPCs críticas;
-- regressões transacionais de estoque;
-- regressões de RLS sob papel `authenticated`.
+A pull request também executa GitHub Actions para TypeScript, build de produção, verificação de migrations, aplicação integral em PostgreSQL isolado e regressões transacionais/RLS.
 
 Um build verde não substitui testes de comportamento do estoque.
 
@@ -113,9 +104,7 @@ Um build verde não substitui testes de comportamento do estoque.
 
 ### Autoridade no banco
 
-O navegador não é fonte confiável para `created_by`. O banco deriva a autoria do usuário autenticado.
-
-Operações que alteram estoque devem preferir RPCs transacionais.
+O navegador não é fonte confiável para `created_by`. O banco deriva a autoria do usuário autenticado. Operações que alteram estoque devem preferir RPCs transacionais.
 
 ### Estoque
 
@@ -123,14 +112,7 @@ Alterações físicas de saldo devem passar pelas funções transacionais do ban
 
 ### RLS
 
-Os papéis atuais são:
-
-- `admin`
-- `manager`
-- `operator`
-- `viewer`
-
-Um perfil com `active = false` não recebe papel operacional por `user_role()`.
+Os papéis atuais são `admin`, `manager`, `operator` e `viewer`. Um perfil com `active = false` não recebe papel operacional por `user_role()`.
 
 ### Operações finalizadas
 
@@ -183,15 +165,8 @@ Ainda é necessário concluir e registrar, no ambiente Supabase de teste:
 
 ## Git workflow
 
-Mudanças estruturais entram por branch e pull request. Não faça merge de uma rodada de estabilização apenas porque o frontend compilou: verifique também migrations e testes funcionais.
+Mudanças estruturais entram por branch e pull request. Não faça merge apenas porque o frontend compilou: verifique também migrations e testes funcionais.
 
 ## Escopo futuro
 
-Após o piloto web estar estável, podem ser retomados separadamente:
-
-- PWA instalável;
-- Electron para Windows;
-- Capacitor/Android;
-- iOS;
-- offline/sincronização;
-- distribuição de executáveis.
+Após o piloto web estar estável, podem ser retomados separadamente PWA, Electron/Windows, Capacitor/Android, iOS, offline/sincronização e distribuição de executáveis.
