@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 export type ProductBarcode = {
   id: string;
@@ -21,19 +21,36 @@ export type ProductWithBarcode = {
   quantity_per_package: number;
 };
 
-// Buscar produto por código de barras
+export type ProductStockLocation = {
+  location_id: string;
+  location_code: string;
+  quantity: number;
+  reserved_quantity: number;
+  available_quantity: number;
+};
+
+export type ProductBarcodeDetails = ProductWithBarcode & {
+  total_stock: number;
+  stock_by_location: ProductStockLocation[];
+  all_barcodes: ProductBarcode[];
+};
+
 export async function findProductByBarcode(barcode: string): Promise<ProductWithBarcode | null> {
-  const { data, error } = await supabase
-    .rpc('find_product_by_barcode', { p_barcode: barcode });
+  if (!isSupabaseConfigured) return null;
+
+  const { data, error } = await supabase.rpc('find_product_by_barcode', {
+    p_barcode: barcode,
+  });
 
   if (error) throw error;
   if (!data || data.length === 0) return null;
 
-  return data[0];
+  return data[0] as ProductWithBarcode;
 }
 
-// Buscar todos os códigos de barras de um produto
 export async function getProductBarcodes(productId: string): Promise<ProductBarcode[]> {
+  if (!isSupabaseConfigured) return [];
+
   const { data, error } = await supabase
     .from('product_barcodes')
     .select('*')
@@ -41,10 +58,9 @@ export async function getProductBarcodes(productId: string): Promise<ProductBarc
     .order('is_primary', { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  return (data || []) as ProductBarcode[];
 }
 
-// Criar novo código de barras
 export async function createProductBarcode(barcode: {
   product_id: string;
   barcode: string;
@@ -53,26 +69,31 @@ export async function createProductBarcode(barcode: {
   quantity_per_package?: number;
   is_primary?: boolean;
 }): Promise<ProductBarcode> {
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+
   const { data, error } = await supabase
     .from('product_barcodes')
-    .insert([{
-      ...barcode,
-      packaging_type: barcode.packaging_type || 'unit',
-      quantity_per_package: barcode.quantity_per_package || 1,
-      is_primary: barcode.is_primary || false,
-    }])
+    .insert([
+      {
+        ...barcode,
+        packaging_type: barcode.packaging_type || 'unit',
+        quantity_per_package: barcode.quantity_per_package || 1,
+        is_primary: barcode.is_primary || false,
+      },
+    ])
     .select()
     .single();
 
   if (error) throw error;
-  return data;
+  return data as ProductBarcode;
 }
 
-// Atualizar código de barras
 export async function updateProductBarcode(
   id: string,
   updates: Partial<ProductBarcode>
 ): Promise<ProductBarcode> {
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+
   const { data, error } = await supabase
     .from('product_barcodes')
     .update(updates)
@@ -81,11 +102,12 @@ export async function updateProductBarcode(
     .single();
 
   if (error) throw error;
-  return data;
+  return data as ProductBarcode;
 }
 
-// Remover código de barras
 export async function deleteProductBarcode(id: string): Promise<void> {
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+
   const { error } = await supabase
     .from('product_barcodes')
     .delete()
@@ -94,36 +116,83 @@ export async function deleteProductBarcode(id: string): Promise<void> {
   if (error) throw error;
 }
 
-// Buscar produto com informações completas por código de barras
-export async function getProductDetailsByBarcode(barcode: string) {
-  // Buscar produto pelo código de barras
+export async function getProductDetailsByBarcode(
+  barcode: string
+): Promise<ProductBarcodeDetails | null> {
+  if (!isSupabaseConfigured) return null;
+
   const productInfo = await findProductByBarcode(barcode);
   if (!productInfo) return null;
 
-  // Buscar estoque total
-  const { data: totalStockData, error: stockError } = await supabase
-    .rpc('get_product_total_stock', { p_product_id: productInfo.product_id });
-
+  const { data: totalStockData, error: stockError } = await supabase.rpc(
+    'get_product_total_stock',
+    { p_product_id: productInfo.product_id }
+  );
   if (stockError) throw stockError;
 
-  // Buscar estoque por localização
-  const { data: stockByLocationData, error: locationError } = await supabase
-    .rpc('get_product_stock_by_location', { p_product_id: productInfo.product_id });
-
+  const { data: stockByLocationData, error: locationError } = await supabase.rpc(
+    'get_product_stock_by_location',
+    { p_product_id: productInfo.product_id }
+  );
   if (locationError) throw locationError;
 
-  // Buscar todos os códigos de barras do produto
   const barcodes = await getProductBarcodes(productInfo.product_id);
 
   return {
     ...productInfo,
-    total_stock: totalStockData || 0,
-    stock_by_location: stockByLocationData || [],
+    total_stock: Number(totalStockData || 0),
+    stock_by_location: ((stockByLocationData || []) as ProductStockLocation[]).map((row) => ({
+      ...row,
+      quantity: Number(row.quantity),
+      reserved_quantity: Number(row.reserved_quantity),
+      available_quantity: Number(row.available_quantity),
+    })),
     all_barcodes: barcodes,
   };
 }
 
-// Calcular quantidade em unidades base
+export async function registerProductWithBarcode(params: {
+  sku: string;
+  name: string;
+  description?: string;
+  category?: string;
+  unit_base?: string;
+  min_stock?: number;
+  max_stock?: number;
+  barcode: string;
+  barcode_type?: string;
+  packaging_type?: string;
+  quantity_per_package?: number;
+  initial_location_id?: string;
+  initial_quantity?: number;
+}): Promise<string> {
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+
+  const validation = validateBarcode(params.barcode);
+  if (!validation.valid) throw new Error('Código de barras inválido');
+
+  const { data, error } = await supabase.rpc('register_product_with_barcode', {
+    p_sku: params.sku,
+    p_name: params.name,
+    p_description: params.description || null,
+    p_category: params.category || null,
+    p_unit_base: params.unit_base || 'un',
+    p_min_stock: params.min_stock ?? 0,
+    p_max_stock: params.max_stock ?? null,
+    p_barcode: params.barcode,
+    p_barcode_type: params.barcode_type || validation.type || null,
+    p_packaging_type: params.packaging_type || 'unit',
+    p_quantity_per_package: params.quantity_per_package ?? 1,
+    p_initial_location_id: params.initial_location_id || null,
+    p_initial_quantity: params.initial_quantity ?? 0,
+  });
+
+  if (error) throw error;
+  if (!data) throw new Error('Banco não retornou o ID do produto');
+
+  return data as string;
+}
+
 export function calculateBaseUnits(
   scannedQuantity: number,
   quantityPerPackage: number
@@ -131,32 +200,14 @@ export function calculateBaseUnits(
   return scannedQuantity * quantityPerPackage;
 }
 
-// Validar código de barras
 export function validateBarcode(barcode: string): { valid: boolean; type?: string } {
-  // EAN-13
-  if (/^\d{13}$/.test(barcode)) {
-    return { valid: true, type: 'EAN13' };
-  }
-  
-  // EAN-8
-  if (/^\d{8}$/.test(barcode)) {
-    return { valid: true, type: 'EAN8' };
-  }
-  
-  // Code 128 (alphanumeric)
-  if (/^[A-Za-z0-9]{6,}$/.test(barcode)) {
-    return { valid: true, type: 'CODE128' };
-  }
-  
-  // Code 39
-  if (/^[A-Z0-9\-\.\$\/\+\%\s]{1,}$/.test(barcode)) {
-    return { valid: true, type: 'CODE39' };
-  }
-  
-  // QR Code (qualquer string)
-  if (barcode.length > 0) {
-    return { valid: true, type: 'QR' };
-  }
-  
+  const normalized = barcode.trim();
+
+  if (/^\d{13}$/.test(normalized)) return { valid: true, type: 'EAN13' };
+  if (/^\d{8}$/.test(normalized)) return { valid: true, type: 'EAN8' };
+  if (/^[A-Za-z0-9]{6,}$/.test(normalized)) return { valid: true, type: 'CODE128' };
+  if (/^[A-Z0-9\-\.\$\/\+\%\s]{1,}$/.test(normalized)) return { valid: true, type: 'CODE39' };
+  if (normalized.length > 0) return { valid: true, type: 'QR' };
+
   return { valid: false };
 }
