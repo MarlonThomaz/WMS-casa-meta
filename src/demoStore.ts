@@ -178,20 +178,46 @@ export const demoMovementLines: DBMovementLine[] = [
   { id: 'demo-ml3', movement_id: 'demo-m3', product_id: 'demo-p4', from_location_id: 'demo-l4', quantity: 3, unit: 'un', created_at: yesterday },
 ];
 
-export const demoStockCounts = [
+export type DemoStockCount = {
+  id: string;
+  count_number: string;
+  count_type: 'full' | 'cycle' | 'spot' | 'reconciliation';
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  location_id?: string;
+  operator_id?: string;
+  notes?: string;
+  created_at: string;
+  completed_at?: string;
+  created_by?: string;
+};
+
+export type DemoStockCountLine = {
+  id: string;
+  stock_count_id: string;
+  product_id: string;
+  location_id: string;
+  system_quantity: number;
+  counted_quantity: number;
+  difference: number;
+  notes?: string;
+  counted_at?: string;
+  created_at: string;
+};
+
+export const demoStockCounts: DemoStockCount[] = [
   {
-    id: 'demo-c1', count_number: 'CNT-2026-0021', count_type: 'cycle' as const,
-    status: 'in_progress' as const, location_id: 'demo-l3', operator_id: 'demo-user-id',
+    id: 'demo-c1', count_number: 'CNT-2026-0021', count_type: 'cycle',
+    status: 'in_progress', location_id: 'demo-l3', operator_id: 'demo-user-id',
     notes: 'Contagem cíclica do picking A-02', created_at: now, created_by: 'demo-user-id',
   },
   {
-    id: 'demo-c2', count_number: 'CNT-2026-0020', count_type: 'spot' as const,
-    status: 'completed' as const, location_id: 'demo-l5', operator_id: 'demo-user-id',
+    id: 'demo-c2', count_number: 'CNT-2026-0020', count_type: 'spot',
+    status: 'completed', location_id: 'demo-l5', operator_id: 'demo-user-id',
     notes: 'Validação de divergência', created_at: yesterday, completed_at: yesterday, created_by: 'demo-user-id',
   },
 ];
 
-export const demoStockCountLines = [
+export const demoStockCountLines: DemoStockCountLine[] = [
   { id: 'demo-cl1', stock_count_id: 'demo-c1', product_id: 'demo-p3', location_id: 'demo-l3', system_quantity: 8, counted_quantity: 7, difference: -1, created_at: now },
   { id: 'demo-cl2', stock_count_id: 'demo-c2', product_id: 'demo-p5', location_id: 'demo-l5', system_quantity: 250, counted_quantity: 250, difference: 0, counted_at: yesterday, created_at: yesterday },
 ];
