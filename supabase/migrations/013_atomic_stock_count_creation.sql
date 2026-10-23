@@ -65,7 +65,7 @@ BEGIN
   RETURNING id INTO v_count_id;
 
   -- Snapshot consistente dos saldos existentes. A função de conclusão
-  -- da migration 008/009 preserva movimentações legítimas posteriores.
+  -- preserva movimentações legítimas ocorridas depois deste snapshot.
   INSERT INTO public.stock_count_lines (
     stock_count_id,
     product_id,
@@ -93,17 +93,6 @@ BEGIN
   IF v_line_count = 0 THEN
     RAISE EXCEPTION 'Nenhum saldo encontrado para o escopo da contagem';
   END IF;
-
-  PERFORM public.log_audit_event(
-    'stock_count_created',
-    'stock_count',
-    v_count_id,
-    jsonb_build_object(
-      'count_type', p_count_type,
-      'location_id', p_location_id,
-      'snapshot_lines', v_line_count
-    )
-  );
 
   RETURN v_count_id;
 END;
