@@ -1,10 +1,12 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { DBShipment, DBShipmentLine, ShipmentWithLines } from '../types';
+import type { DBShipment, DBShipmentLine, ShipmentWithLines } from '../types';
 
-// Buscar todas as expedições
+export type Shipment = DBShipment;
+export type { ShipmentWithLines };
+
 export async function getShipments(limit = 100): Promise<DBShipment[]> {
   if (!isSupabaseConfigured) return [];
-  
+
   const { data, error } = await supabase
     .from('shipments')
     .select('*')
@@ -15,33 +17,66 @@ export async function getShipments(limit = 100): Promise<DBShipment[]> {
   return data || [];
 }
 
-// Buscar expedição por ID com linhas
+export async function getShipmentsByStatus(
+  status: DBShipment['status'],
+  limit = 100
+): Promise<DBShipment[]> {
+  if (!isSupabaseConfigured) return [];
+
+  const { data, error } = await supabase
+    .from('shipments')
+    .select('*')
+    .eq('status', status)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getShipmentsByPriority(
+  priority: DBShipment['priority'],
+  limit = 100
+): Promise<DBShipment[]> {
+  if (!isSupabaseConfigured) return [];
+
+  const { data, error } = await supabase
+    .from('shipments')
+    .select('*')
+    .eq('priority', priority)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return data || [];
+}
+
 export async function getShipmentById(id: string): Promise<ShipmentWithLines | null> {
   if (!isSupabaseConfigured) return null;
-  
+
   const { data: shipment, error: shipmentError } = await supabase
     .from('shipments')
     .select('*')
     .eq('id', id)
     .single();
 
-  if (shipmentError) throw shipmentError;
+  if (shipmentError) {
+    if (shipmentError.code === 'PGRST116') return null;
+    throw shipmentError;
+  }
   if (!shipment) return null;
 
   const { data: lines, error: linesError } = await supabase
     .from('shipment_lines')
     .select('*')
-    .eq('shipment_id', id);
+    .eq('shipment_id', id)
+    .order('created_at');
 
   if (linesError) throw linesError;
 
-  return {
-    ...shipment,
-    lines: lines || [],
-  };
+  return { ...shipment, lines: lines || [] };
 }
 
-// Criar nova expedição
 export async function createShipment(shipment: {
   customer_name: string;
   customer_reference?: string;
@@ -52,22 +87,24 @@ export async function createShipment(shipment: {
   notes?: string;
 }): Promise<DBShipment> {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  
-  // Gerar número único usando sequência
-  const { data: shipmentNumber, error: refError } = await supabase
-    .rpc('generate_shipment_number');
+
+  const { data: shipmentNumber, error: refError } = await supabase.rpc(
+    'generate_shipment_number'
+  );
 
   if (refError) throw refError;
 
   const { data, error } = await supabase
     .from('shipments')
-    .insert([{
-      ...shipment,
-      shipment_number: shipmentNumber,
-      priority: shipment.priority || 'medium',
-      status: 'pending',
-      created_by: shipment.operator_id,
-    }])
+    .insert([
+      {
+        ...shipment,
+        shipment_number: shipmentNumber,
+        priority: shipment.priority || 'medium',
+        status: 'pending',
+        created_by: shipment.operator_id,
+      },
+    ])
     .select()
     .single();
 
@@ -75,7 +112,6 @@ export async function createShipment(shipment: {
   return data;
 }
 
-// Adicionar linha à expedição
 export async function addShipmentLine(line: {
   shipment_id: string;
   product_id: string;
@@ -85,14 +121,19 @@ export async function addShipmentLine(line: {
   notes?: string;
 }): Promise<DBShipmentLine> {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  
+  if (line.requested_quantity <= 0) {
+    throw new Error('Quantidade solicitada deve ser maior que zero');
+  }
+
   const { data, error } = await supabase
     .from('shipment_lines')
-    .insert([{
-      ...line,
-      picked_quantity: 0,
-      unit: line.unit || 'un',
-    }])
+    .insert([
+      {
+        ...line,
+        picked_quantity: 0,
+        unit: line.unit || 'un',
+      },
+    ])
     .select()
     .single();
 
@@ -100,29 +141,23 @@ export async function addShipmentLine(line: {
   return data;
 }
 
-// CORREÇÃO CRÍTICA: Iniciar separação usando função atômica
-// Reserva todas as linhas de uma vez - se uma falhar, nenhuma é reservada
 export async function startPicking(shipmentId: string): Promise<void> {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  
-  // Usar função SQL atômica que reserva todas as linhas de uma vez
+
   const { error } = await supabase.rpc('reserve_stock_for_shipment', {
     p_shipment_id: shipmentId,
   });
 
-  // CORREÇÃO: Verificar explicitamente o erro retornado
-  if (error) {
-    throw new Error(`Falha ao iniciar separação: ${error.message}`);
-  }
+  if (error) throw new Error(`Falha ao iniciar separação: ${error.message}`);
 }
 
-// Confirmar quantidade separada
 export async function confirmPickedQuantity(
   lineId: string,
   pickedQuantity: number
 ): Promise<void> {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  
+  if (pickedQuantity < 0) throw new Error('Quantidade separada não pode ser negativa');
+
   const { error } = await supabase
     .from('shipment_lines')
     .update({
@@ -134,31 +169,22 @@ export async function confirmPickedQuantity(
   if (error) throw error;
 }
 
-// CORREÇÃO CRÍTICA: Confirmar embalagem usando função atômica
-// Debita estoque e libera reservas de forma consistente
 export async function confirmPacked(shipmentId: string): Promise<void> {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  
-  // Usar função SQL atômica
+
   const { error } = await supabase.rpc('confirm_shipment_picked', {
     p_shipment_id: shipmentId,
   });
 
-  if (error) {
-    throw new Error(`Falha ao confirmar embalagem: ${error.message}`);
-  }
+  if (error) throw new Error(`Falha ao confirmar embalagem: ${error.message}`);
 }
 
-// Confirmar despacho
 export async function confirmShipped(shipmentId: string): Promise<void> {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  
+
   const shipment = await getShipmentById(shipmentId);
   if (!shipment) throw new Error('Expedição não encontrada');
-
-  if (shipment.status !== 'packed') {
-    throw new Error('Expedição não está embalada');
-  }
+  if (shipment.status !== 'packed') throw new Error('Expedição não está embalada');
 
   const { error } = await supabase
     .from('shipments')
@@ -167,34 +193,36 @@ export async function confirmShipped(shipmentId: string): Promise<void> {
       actual_date: new Date().toISOString(),
       completed_at: new Date().toISOString(),
     })
-    .eq('id', shipmentId);
+    .eq('id', shipmentId)
+    .eq('status', 'packed');
 
   if (error) throw error;
 }
 
-// Cancelar expedição - libera reservas se necessário
 export async function cancelShipment(shipmentId: string): Promise<void> {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  
+
   const shipment = await getShipmentById(shipmentId);
   if (!shipment) throw new Error('Expedição não encontrada');
 
-  // Se estava em picking, liberar reservas
   if (shipment.status === 'picking') {
     const { error } = await supabase.rpc('release_shipment_reservations', {
       p_shipment_id: shipmentId,
     });
 
-    if (error) {
-      throw new Error(`Falha ao liberar reservas: ${error.message}`);
-    }
+    if (error) throw new Error(`Falha ao liberar reservas: ${error.message}`);
+    return;
   }
 
-  // Atualizar status
+  if (shipment.status !== 'pending') {
+    throw new Error(`Expedição não pode ser cancelada no status ${shipment.status}`);
+  }
+
   const { error } = await supabase
     .from('shipments')
     .update({ status: 'cancelled' })
-    .eq('id', shipmentId);
+    .eq('id', shipmentId)
+    .eq('status', 'pending');
 
   if (error) throw error;
 }
