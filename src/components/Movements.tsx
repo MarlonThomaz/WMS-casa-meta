@@ -1,265 +1,291 @@
-import { useState, useEffect } from 'react';
-import { useMovements } from '../hooks/useMovements';
-import { useAuth } from '../contexts/AuthContext';
-import { ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Settings, Search, Filter, AlertCircle } from 'lucide-react';
-import { movements as demoMovements } from '../data';
-import { Movement } from '../types';
+import { useMemo, useState } from 'react';
+import {
+  AlertCircle,
+  ArrowDownToLine,
+  ArrowLeftRight,
+  ArrowUpFromLine,
+  ChevronLeft,
+  Search,
+  Settings,
+} from 'lucide-react';
+import { useMovement, useMovements } from '../hooks/useMovements';
+import { useProducts } from '../hooks/useProducts';
+import { useLocations } from '../hooks/useLocations';
+import type { DBMovement } from '../types';
+
+const typeLabel: Record<DBMovement['movement_type'], string> = {
+  inbound: 'Entrada',
+  outbound: 'Saída',
+  transfer: 'Transferência',
+  adjustment: 'Ajuste',
+  count: 'Contagem',
+};
+
+const statusLabel: Record<DBMovement['status'], string> = {
+  pending: 'Pendente',
+  in_progress: 'Em andamento',
+  completed: 'Concluído',
+  cancelled: 'Cancelado',
+  failed: 'Falhou',
+};
+
+function typeClass(type: DBMovement['movement_type']) {
+  switch (type) {
+    case 'inbound':
+      return 'bg-blue-100 text-blue-700';
+    case 'outbound':
+      return 'bg-red-100 text-red-700';
+    case 'transfer':
+      return 'bg-purple-100 text-purple-700';
+    case 'adjustment':
+      return 'bg-amber-100 text-amber-700';
+    default:
+      return 'bg-slate-100 text-slate-700';
+  }
+}
+
+function statusClass(status: DBMovement['status']) {
+  switch (status) {
+    case 'completed':
+      return 'bg-green-100 text-green-700';
+    case 'pending':
+      return 'bg-amber-100 text-amber-700';
+    case 'in_progress':
+      return 'bg-blue-100 text-blue-700';
+    case 'cancelled':
+    case 'failed':
+      return 'bg-red-100 text-red-700';
+  }
+}
 
 export default function Movements() {
-  const { user } = useAuth();
-  const { movements: supabaseMovements, loading: supabaseLoading, error: supabaseError } = useMovements();
-  
-  // Usar dados do Supabase se disponíveis, senão usar dados de demonstração
-  const [movements, setMovements] = useState<Movement[]>(demoMovements);
-  const [usingSupabase, setUsingSupabase] = useState(false);
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
+  const { movements, loading, error } = useMovements();
+  const [typeFilter, setTypeFilter] = useState<'all' | DBMovement['movement_type']>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | DBMovement['status']>('all');
+  const [search, setSearch] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Tentar carregar do Supabase
-  useEffect(() => {
-    if (!supabaseLoading && supabaseMovements.length > 0 && !usingSupabase) {
-      setMovements(supabaseMovements as unknown as Movement[]);
-      setUsingSupabase(true);
-    }
-  }, [supabaseLoading, supabaseMovements]);
+  if (selectedId) {
+    return <MovementDetail movementId={selectedId} onBack={() => setSelectedId(null)} />;
+  }
 
-  const filteredMovements = movements.filter(m => {
-    const matchesType = typeFilter === 'all' || m.type === typeFilter;
-    const matchesStatus = statusFilter === 'all' || m.status === statusFilter;
-    const matchesSearch = m.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      m.reference.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      m.operator.toLowerCase().includes(searchTerm.toLowerCase());
+  const normalizedSearch = search.trim().toLowerCase();
+  const filtered = movements.filter((movement) => {
+    const matchesType = typeFilter === 'all' || movement.movement_type === typeFilter;
+    const matchesStatus = statusFilter === 'all' || movement.status === statusFilter;
+    const matchesSearch =
+      normalizedSearch.length === 0 ||
+      movement.reference.toLowerCase().includes(normalizedSearch) ||
+      movement.source_reference?.toLowerCase().includes(normalizedSearch) ||
+      movement.notes?.toLowerCase().includes(normalizedSearch);
+
     return matchesType && matchesStatus && matchesSearch;
   });
 
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'inbound': return <ArrowDownToLine className="w-4 h-4" />;
-      case 'outbound': return <ArrowUpFromLine className="w-4 h-4" />;
-      case 'transfer': return <ArrowLeftRight className="w-4 h-4" />;
-      case 'adjustment': return <Settings className="w-4 h-4" />;
-      default: return null;
-    }
-  };
-
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'inbound': return 'bg-blue-100 text-blue-700';
-      case 'outbound': return 'bg-red-100 text-red-700';
-      case 'transfer': return 'bg-purple-100 text-purple-700';
-      case 'adjustment': return 'bg-amber-100 text-amber-700';
-      default: return 'bg-slate-100 text-slate-700';
-    }
-  };
-
-  const getTypeLabel = (type: string) => {
-    switch (type) {
-      case 'inbound': return 'Entrada';
-      case 'outbound': return 'Saída';
-      case 'transfer': return 'Transferência';
-      case 'adjustment': return 'Ajuste';
-      default: return type;
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed': return 'bg-green-100 text-green-700';
-      case 'pending': return 'bg-amber-100 text-amber-700';
-      case 'cancelled': return 'bg-red-100 text-red-700';
-      default: return 'bg-slate-100 text-slate-700';
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'completed': return 'Concluído';
-      case 'pending': return 'Pendente';
-      case 'cancelled': return 'Cancelado';
-      default: return status;
-    }
-  };
-
   const summary = {
-    inbound: movements.filter(m => m.type === 'inbound').length,
-    outbound: movements.filter(m => m.type === 'outbound').length,
-    transfer: movements.filter(m => m.type === 'transfer').length,
-    adjustment: movements.filter(m => m.type === 'adjustment').length,
+    inbound: movements.filter((m) => m.movement_type === 'inbound').length,
+    outbound: movements.filter((m) => m.movement_type === 'outbound').length,
+    transfer: movements.filter((m) => m.movement_type === 'transfer').length,
+    adjustment: movements.filter((m) => m.movement_type === 'adjustment').length,
   };
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Movimentações</h1>
-          <p className="text-slate-500">
-            Histórico de movimentações do armazém
-            {usingSupabase && (
-              <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                Conectado ao Supabase
-              </span>
-            )}
-            {!usingSupabase && !supabaseLoading && (
-              <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
-                Modo demonstração
-              </span>
-            )}
-          </p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-slate-800">Movimentações</h1>
+        <p className="text-slate-500">Histórico persistido de entradas, saídas, transferências e ajustes.</p>
       </div>
 
-      {/* Error message */}
-      {supabaseError && (
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
-          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-amber-800">Usando dados de demonstração</p>
-            <p className="text-xs text-amber-700 mt-1">
-              Não foi possível conectar ao Supabase: {supabaseError}. Configure o arquivo .env e execute as migrations.
-            </p>
-          </div>
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex gap-2">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          {error}
         </div>
       )}
 
-      {/* Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-2 mb-1">
-            <ArrowDownToLine className="w-4 h-4 text-blue-500" />
-            <span className="text-sm text-slate-500">Entradas</span>
-          </div>
-          <p className="text-2xl font-bold text-blue-600">{summary.inbound}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-2 mb-1">
-            <ArrowUpFromLine className="w-4 h-4 text-red-500" />
-            <span className="text-sm text-slate-500">Saídas</span>
-          </div>
-          <p className="text-2xl font-bold text-red-600">{summary.outbound}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-2 mb-1">
-            <ArrowLeftRight className="w-4 h-4 text-purple-500" />
-            <span className="text-sm text-slate-500">Transferências</span>
-          </div>
-          <p className="text-2xl font-bold text-purple-600">{summary.transfer}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-2 mb-1">
-            <Settings className="w-4 h-4 text-amber-500" />
-            <span className="text-sm text-slate-500">Ajustes</span>
-          </div>
-          <p className="text-2xl font-bold text-amber-600">{summary.adjustment}</p>
-        </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Summary label="Entradas" value={summary.inbound} icon={<ArrowDownToLine className="w-4 h-4" />} />
+        <Summary label="Saídas" value={summary.outbound} icon={<ArrowUpFromLine className="w-4 h-4" />} />
+        <Summary label="Transferências" value={summary.transfer} icon={<ArrowLeftRight className="w-4 h-4" />} />
+        <Summary label="Ajustes" value={summary.adjustment} icon={<Settings className="w-4 h-4" />} />
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-4">
-        <div className="flex-1 min-w-[200px] relative">
+      <div className="grid md:grid-cols-[1fr_220px_220px] gap-3">
+        <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
-            type="text"
-            placeholder="Buscar por produto, referência ou operador..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Referência, origem do documento ou observação..."
+            className="w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg"
           />
         </div>
-        <div className="relative">
-          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="pl-10 pr-8 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none bg-white"
-          >
-            <option value="all">Todos os Tipos</option>
-            <option value="inbound">Entrada</option>
-            <option value="outbound">Saída</option>
-            <option value="transfer">Transferência</option>
-            <option value="adjustment">Ajuste</option>
-          </select>
-        </div>
-        <div className="relative">
-          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="pl-10 pr-8 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none appearance-none bg-white"
-          >
-            <option value="all">Todos os Status</option>
-            <option value="completed">Concluído</option>
-            <option value="pending">Pendente</option>
-            <option value="cancelled">Cancelado</option>
-          </select>
-        </div>
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
+          className="border border-slate-200 rounded-lg px-3 py-2 bg-white"
+        >
+          <option value="all">Todos os tipos</option>
+          <option value="inbound">Entrada</option>
+          <option value="outbound">Saída</option>
+          <option value="transfer">Transferência</option>
+          <option value="adjustment">Ajuste</option>
+          <option value="count">Contagem</option>
+        </select>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+          className="border border-slate-200 rounded-lg px-3 py-2 bg-white"
+        >
+          <option value="all">Todos os status</option>
+          <option value="pending">Pendente</option>
+          <option value="in_progress">Em andamento</option>
+          <option value="completed">Concluído</option>
+          <option value="cancelled">Cancelado</option>
+          <option value="failed">Falhou</option>
+        </select>
       </div>
 
-      {/* Movements Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Referência</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Tipo</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Produto</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Qtd</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Origem</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Destino</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Data/Hora</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Operador</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Status</th>
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="text-left px-4 py-3">Referência</th>
+                <th className="text-left px-4 py-3">Tipo</th>
+                <th className="text-left px-4 py-3">Documento</th>
+                <th className="text-left px-4 py-3">Data</th>
+                <th className="text-left px-4 py-3">Status</th>
+                <th className="text-right px-4 py-3">Ação</th>
               </tr>
             </thead>
-            <tbody>
-              {filteredMovements.map((mov) => (
-                <tr key={mov.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+            <tbody className="divide-y divide-slate-100">
+              {filtered.map((movement) => (
+                <tr key={movement.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-mono text-sm">{movement.reference}</td>
                   <td className="px-4 py-3">
-                    <span className="text-sm font-mono font-medium text-slate-700">{mov.reference}</span>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full ${getTypeColor(mov.type)}`}>
-                      {getTypeIcon(mov.type)}
-                      {getTypeLabel(mov.type)}
+                    <span className={`inline-flex px-2 py-1 rounded-full text-xs ${typeClass(movement.movement_type)}`}>
+                      {typeLabel[movement.movement_type]}
                     </span>
                   </td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{movement.source_reference || '—'}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{new Date(movement.created_at).toLocaleString('pt-BR')}</td>
                   <td className="px-4 py-3">
-                    <span className="text-sm text-slate-700">{mov.productName}</span>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <span className={`text-sm font-semibold ${mov.quantity > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {mov.quantity > 0 ? '+' : ''}{mov.quantity}
+                    <span className={`inline-flex px-2 py-1 rounded-full text-xs ${statusClass(movement.status)}`}>
+                      {statusLabel[movement.status]}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
-                    <span className="text-sm font-mono text-slate-600">{mov.fromLocation}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-sm font-mono text-slate-600">{mov.toLocation}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-sm text-slate-600">{mov.date}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-sm text-slate-600">{mov.operator}</span>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(mov.status)}`}>
-                      {getStatusLabel(mov.status)}
-                    </span>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(movement.id)}
+                      className="text-sm text-blue-600 font-medium hover:text-blue-800"
+                    >
+                      Ver linhas
+                    </button>
                   </td>
                 </tr>
               ))}
+              {!loading && filtered.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="p-10 text-center text-slate-400">
+                    Nenhuma movimentação encontrada.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
-        {filteredMovements.length === 0 && !supabaseLoading && (
-          <div className="p-8 text-center text-slate-400">
-            Nenhuma movimentação encontrada.
-          </div>
-        )}
+        {loading && <div className="p-6 text-center text-slate-500">Carregando movimentações...</div>}
       </div>
+    </div>
+  );
+}
+
+function MovementDetail({ movementId, onBack }: { movementId: string; onBack: () => void }) {
+  const { movement, loading, error } = useMovement(movementId);
+  const { products } = useProducts();
+  const { locations } = useLocations();
+
+  const productNames = useMemo(
+    () => new Map(products.map((product) => [product.id, `${product.sku} — ${product.name}`])),
+    [products]
+  );
+  const locationNames = useMemo(
+    () => new Map(locations.map((location) => [location.id, location.code])),
+    [locations]
+  );
+
+  if (loading) return <div className="p-6 text-slate-500">Carregando movimentação...</div>;
+  if (error || !movement) {
+    return (
+      <div className="p-6 space-y-4">
+        <button type="button" onClick={onBack} className="text-blue-600">← Voltar</button>
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+          {error || 'Movimentação não encontrada'}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      <div>
+        <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-blue-600 mb-2">
+          <ChevronLeft className="w-4 h-4" /> Voltar
+        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-2xl font-bold text-slate-800">{movement.reference}</h1>
+          <span className={`px-2 py-1 rounded-full text-xs ${typeClass(movement.movement_type)}`}>
+            {typeLabel[movement.movement_type]}
+          </span>
+          <span className={`px-2 py-1 rounded-full text-xs ${statusClass(movement.status)}`}>
+            {statusLabel[movement.status]}
+          </span>
+        </div>
+        {movement.notes && <p className="text-slate-500 mt-2">{movement.notes}</p>}
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="text-left px-4 py-3">Produto</th>
+                <th className="text-left px-4 py-3">Origem</th>
+                <th className="text-left px-4 py-3">Destino</th>
+                <th className="text-right px-4 py-3">Quantidade</th>
+                <th className="text-left px-4 py-3">Unidade</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {movement.lines.map((line) => (
+                <tr key={line.id}>
+                  <td className="px-4 py-3 text-sm">{productNames.get(line.product_id) || line.product_id}</td>
+                  <td className="px-4 py-3 text-sm">{line.from_location_id ? locationNames.get(line.from_location_id) || line.from_location_id : '—'}</td>
+                  <td className="px-4 py-3 text-sm">{line.to_location_id ? locationNames.get(line.to_location_id) || line.to_location_id : '—'}</td>
+                  <td className="px-4 py-3 text-sm text-right font-medium">{line.quantity}</td>
+                  <td className="px-4 py-3 text-sm">{line.unit}</td>
+                </tr>
+              ))}
+              {movement.lines.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-slate-400">Sem linhas registradas.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Summary({ label, value, icon }: { label: string; value: number; icon: React.ReactNode }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <div className="flex items-center gap-2 text-slate-500 text-sm">{icon}{label}</div>
+      <div className="text-2xl font-bold text-slate-800 mt-1">{value}</div>
     </div>
   );
 }
