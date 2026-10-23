@@ -47,6 +47,15 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
+      - name: Upload normalized package lock
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: normalized-package-lock
+          path: package-lock.json
+          if-no-files-found: error
+          retention-days: 1
+
   migrations-static:
     runs-on: ubuntu-latest
     steps:
