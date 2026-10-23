@@ -31,7 +31,7 @@ export async function getProductTotalStock(productId: string): Promise<number> {
     .rpc('get_product_total_stock', { p_product_id: productId });
 
   if (error) throw error;
-  return data || 0;
+  return (data as number) || 0;
 }
 
 export async function getStockSummary() {
