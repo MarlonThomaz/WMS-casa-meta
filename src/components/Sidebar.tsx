@@ -3,7 +3,7 @@ import {
   ArrowLeftRight,
   BarChart3,
   Building2,
-  CircleHelp,
+  HelpCircle,
   ClipboardCheck,
   LayoutDashboard,
   LogOut,
@@ -30,7 +30,7 @@ const menuItems = [
   { id: 'barcode-kit' as Page, label: 'Códigos de barras', icon: ScanLine },
   { id: 'stock-count' as Page, label: 'Contagem física', icon: ClipboardCheck },
   { id: 'pilot-dashboard' as Page, label: 'Piloto', icon: BarChart3 },
-  { id: 'help' as Page, label: 'Ajuda', icon: CircleHelp },
+  { id: 'help' as Page, label: 'Ajuda', icon: HelpCircle },
 ];
 
 export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
