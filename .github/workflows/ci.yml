@@ -1,0 +1,60 @@
+name: WMS CI
+
+on:
+  push:
+    branches:
+      - main
+      - wms-stabilization-round8
+  pull_request:
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Production build
+        run: npm run build
+
+  migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check duplicate migration versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          duplicates="$(find supabase/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' \
+            | sed -E 's/^([0-9]+)_.*/\1/' \
+            | sort \
+            | uniq -d)"
+
+          if [ -n "$duplicates" ]; then
+            echo "Duplicate migration versions found:"
+            echo "$duplicates"
+            exit 1
+          fi
+
+      - name: Reject trigger pseudo-records inside policies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RniE 'WITH CHECK.*(NEW\.|OLD\.)' supabase/migrations; then
+            echo 'NEW/OLD cannot be used as row pseudo-records in RLS policy expressions.'
+            exit 1
+          fi
