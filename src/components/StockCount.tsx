@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useStockCounts, useStockCount, useStockCountLines } from '../hooks/useStockCounts';
 import { useAuth } from '../contexts/AuthContext';
 import { ClipboardCheck, Plus, Play, CheckCircle, XCircle, AlertCircle } from 'lucide-react';

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useReceipts, useCreateReceipt, useConfirmReceipt, useCancelReceipt, useUpdateReceivedQuantity } from '../hooks/useReceiving';
 import { useAuth } from '../contexts/AuthContext';
 import { Plus, CheckCircle, XCircle, Clock, AlertCircle, Package } from 'lucide-react';
@@ -20,10 +20,12 @@ export default function Receiving() {
   const [showModal, setShowModal] = useState(false);
 
   // Tentar carregar do Supabase
-  if (!supabaseLoading && supabaseReceipts.length > 0 && !usingSupabase) {
-    setReceipts(supabaseReceipts as unknown as ReceivingOrder[]);
-    setUsingSupabase(true);
-  }
+  useEffect(() => {
+    if (!supabaseLoading && supabaseReceipts.length > 0 && !usingSupabase) {
+      setReceipts(supabaseReceipts as unknown as ReceivingOrder[]);
+      setUsingSupabase(true);
+    }
+  }, [supabaseLoading, supabaseReceipts]);
 
   const filteredReceipts = receipts.filter(r => 
     statusFilter === 'all' || r.status === statusFilter

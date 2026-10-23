@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMovements } from '../hooks/useMovements';
 import { useAuth } from '../contexts/AuthContext';
 import { ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Settings, Search, Filter, AlertCircle } from 'lucide-react';
@@ -17,10 +17,12 @@ export default function Movements() {
   const [searchTerm, setSearchTerm] = useState('');
 
   // Tentar carregar do Supabase
-  if (!supabaseLoading && supabaseMovements.length > 0 && !usingSupabase) {
-    setMovements(supabaseMovements as unknown as Movement[]);
-    setUsingSupabase(true);
-  }
+  useEffect(() => {
+    if (!supabaseLoading && supabaseMovements.length > 0 && !usingSupabase) {
+      setMovements(supabaseMovements as unknown as Movement[]);
+      setUsingSupabase(true);
+    }
+  }, [supabaseLoading, supabaseMovements]);
 
   const filteredMovements = movements.filter(m => {
     const matchesType = typeFilter === 'all' || m.type === typeFilter;

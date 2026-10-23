@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Barcode, PackagePlus, ArrowLeftRight, MapPin } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { QrCode, PackagePlus, ArrowLeftRight, MapPin } from 'lucide-react';
 import BarcodeScanner from './BarcodeScanner';
 import { useBarcodeLookup, useBarcodeDetails } from '../hooks/useBarcodes';
 
@@ -30,7 +30,7 @@ export default function BarcodeKit() {
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-          <Barcode className="w-7 h-7 text-blue-600" />
+          <QrCode className="w-7 h-7 text-blue-600" />
           Kit Leitor de Código de Barras
         </h1>
         <p className="text-slate-500">Escaneie códigos para cadastro, transferência ou localização de estoque</p>
@@ -178,12 +178,16 @@ function RegisterPanel({ scannedCode }: { scannedCode: string }) {
     maxStock: 100,
   });
   const [saved, setSaved] = useState(false);
+  const lastScannedRef = useRef<string>('');
 
   // Auto-lookup when scanned
-  if (scannedCode && scannedCode !== formData.sku) {
-    lookupBarcode(scannedCode);
-    setFormData(prev => ({ ...prev, sku: scannedCode }));
-  }
+  useEffect(() => {
+    if (scannedCode && scannedCode !== lastScannedRef.current) {
+      lastScannedRef.current = scannedCode;
+      lookupBarcode(scannedCode);
+      setFormData(prev => ({ ...prev, sku: scannedCode }));
+    }
+  }, [scannedCode]);
 
   const handleSave = () => {
     // Aqui você integraria com o serviço de produtos
@@ -318,12 +322,16 @@ function TransferPanel({ scannedCode }: { scannedCode: string }) {
   const [toLocation, setToLocation] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [transferred, setTransferred] = useState(false);
+  const lastScannedRef = useRef<string>('');
 
   // Auto-lookup when scanned
-  if (scannedCode && scannedCode !== productCode) {
-    lookupBarcode(scannedCode);
-    setProductCode(scannedCode);
-  }
+  useEffect(() => {
+    if (scannedCode && scannedCode !== lastScannedRef.current) {
+      lastScannedRef.current = scannedCode;
+      lookupBarcode(scannedCode);
+      setProductCode(scannedCode);
+    }
+  }, [scannedCode]);
 
   const handleTransfer = () => {
     // Aqui você integraria com o serviço de movimentações
@@ -446,13 +454,17 @@ function LocatePanel({ scannedCode }: { scannedCode: string }) {
   const { details, loading, error, lookupDetails } = useBarcodeDetails();
   const [searchCode, setSearchCode] = useState('');
   const [searched, setSearched] = useState(false);
+  const lastScannedRef = useRef<string>('');
 
   // Auto-locate when scanned
-  if (scannedCode && scannedCode !== searchCode) {
-    lookupDetails(scannedCode);
-    setSearchCode(scannedCode);
-    setSearched(true);
-  }
+  useEffect(() => {
+    if (scannedCode && scannedCode !== lastScannedRef.current) {
+      lastScannedRef.current = scannedCode;
+      lookupDetails(scannedCode);
+      setSearchCode(scannedCode);
+      setSearched(true);
+    }
+  }, [scannedCode]);
 
   const handleLocate = () => {
     lookupDetails(searchCode);

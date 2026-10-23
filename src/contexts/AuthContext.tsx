@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { supabase, User } from '../lib/supabase';
+import { supabase, User, isSupabaseConfigured } from '../lib/supabase';
 import { Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
@@ -9,7 +9,16 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, fullName: string) => Promise<void>;
   signOut: () => Promise<void>;
+  isDemo: boolean;
 }
+
+// Usuário demo para quando o Supabase não está configurado
+const DEMO_USER: User = {
+  id: 'demo-user-id',
+  email: 'demo@casameta.com',
+  full_name: 'Usuário Demo',
+  role: 'admin',
+};
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -19,6 +28,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Se Supabase não está configurado, usar usuário demo
+    if (!isSupabaseConfigured) {
+      setUser(DEMO_USER);
+      setLoading(false);
+      return;
+    }
+
     // Verificar sessão atual
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -27,6 +43,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setLoading(false);
       }
+    }).catch(() => {
+      setUser(DEMO_USER);
+      setLoading(false);
     });
 
     // Listener para mudanças de autenticação
@@ -53,7 +72,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.error('Erro ao carregar perfil:', error);
-        setUser(null);
+        // Se não encontrar perfil, usar dados básicos do usuário auth
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setUser({
+            id: user.id,
+            email: user.email || '',
+            full_name: (user.user_metadata as any)?.full_name || user.email?.split('@')[0] || 'Usuário',
+            role: 'operator',
+          });
+        }
       } else {
         setUser(profile);
       }
@@ -66,6 +94,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signIn(email: string, password: string) {
+    // Modo demo - aceitar qualquer credencial
+    if (!isSupabaseConfigured) {
+      if (email && password) {
+        setUser({
+          ...DEMO_USER,
+          email: email,
+          full_name: email.split('@')[0],
+        });
+        return;
+      }
+      throw new Error('Email e senha são obrigatórios');
+    }
+
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -75,6 +116,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signUp(email: string, password: string, fullName: string) {
+    if (!isSupabaseConfigured) {
+      setUser({
+        ...DEMO_USER,
+        email: email,
+        full_name: fullName,
+      });
+      return;
+    }
+
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -100,6 +150,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
+    if (!isSupabaseConfigured) {
+      setUser(null);
+      return;
+    }
+
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
     setUser(null);
@@ -107,7 +162,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      session, 
+      loading, 
+      signIn, 
+      signUp, 
+      signOut,
+      isDemo: !isSupabaseConfigured,
+    }}>
       {children}
     </AuthContext.Provider>
   );
