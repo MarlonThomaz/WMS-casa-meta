@@ -24,26 +24,17 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: TypeScript
-        id: typecheck
         shell: bash
         run: |
-          set +e
           set -o pipefail
           npm run typecheck 2>&1 | tee ci-typecheck.log
-          code=${PIPESTATUS[0]}
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          exit 0
 
       - name: Production build
-        id: build
+        if: always()
         shell: bash
         run: |
-          set +e
           set -o pipefail
           npm run build 2>&1 | tee ci-build.log
-          code=${PIPESTATUS[0]}
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          exit 0
 
       - name: Upload web diagnostics
         if: always()
@@ -55,16 +46,6 @@ jobs:
             ci-build.log
           if-no-files-found: ignore
           retention-days: 3
-
-      - name: Enforce web checks
-        if: always()
-        shell: bash
-        run: |
-          echo "TypeScript exit: ${{ steps.typecheck.outputs.exit_code }}"
-          echo "Build exit: ${{ steps.build.outputs.exit_code }}"
-          if [ "${{ steps.typecheck.outputs.exit_code }}" != "0" ] || [ "${{ steps.build.outputs.exit_code }}" != "0" ]; then
-            exit 1
-          fi
 
   migrations-static:
     runs-on: ubuntu-latest
