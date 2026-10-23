@@ -1,13 +1,26 @@
 import { useState } from 'react';
-import { ArrowDown, ArrowUp, ArrowLeftRight, Settings, Search, Filter } from 'lucide-react';
+import { useMovements } from '../hooks/useMovements';
+import { useAuth } from '../contexts/AuthContext';
+import { ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Settings, Search, Filter, AlertCircle } from 'lucide-react';
+import { movements as demoMovements } from '../data';
 import { Movement } from '../types';
-import { movements as initialMovements } from '../data';
 
 export default function Movements() {
-  const [movements] = useState<Movement[]>(initialMovements);
+  const { user } = useAuth();
+  const { movements: supabaseMovements, loading: supabaseLoading, error: supabaseError } = useMovements();
+  
+  // Usar dados do Supabase se disponíveis, senão usar dados de demonstração
+  const [movements, setMovements] = useState<Movement[]>(demoMovements);
+  const [usingSupabase, setUsingSupabase] = useState(false);
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Tentar carregar do Supabase
+  if (!supabaseLoading && supabaseMovements.length > 0 && !usingSupabase) {
+    setMovements(supabaseMovements as unknown as Movement[]);
+    setUsingSupabase(true);
+  }
 
   const filteredMovements = movements.filter(m => {
     const matchesType = typeFilter === 'all' || m.type === typeFilter;
@@ -20,8 +33,8 @@ export default function Movements() {
 
   const getTypeIcon = (type: string) => {
     switch (type) {
-      case 'inbound': return <ArrowDown className="w-4 h-4" />;
-      case 'outbound': return <ArrowUp className="w-4 h-4" />;
+      case 'inbound': return <ArrowDownToLine className="w-4 h-4" />;
+      case 'outbound': return <ArrowUpFromLine className="w-4 h-4" />;
       case 'transfer': return <ArrowLeftRight className="w-4 h-4" />;
       case 'adjustment': return <Settings className="w-4 h-4" />;
       default: return null;
@@ -78,22 +91,47 @@ export default function Movements() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Movimentações</h1>
-          <p className="text-slate-500">Histórico de movimentações do armazém</p>
+          <p className="text-slate-500">
+            Histórico de movimentações do armazém
+            {usingSupabase && (
+              <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                Conectado ao Supabase
+              </span>
+            )}
+            {!usingSupabase && !supabaseLoading && (
+              <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                Modo demonstração
+              </span>
+            )}
+          </p>
         </div>
       </div>
+
+      {/* Error message */}
+      {supabaseError && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-amber-800">Usando dados de demonstração</p>
+            <p className="text-xs text-amber-700 mt-1">
+              Não foi possível conectar ao Supabase: {supabaseError}. Configure o arquivo .env e execute as migrations.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
           <div className="flex items-center gap-2 mb-1">
-            <ArrowDown className="w-4 h-4 text-blue-500" />
+            <ArrowDownToLine className="w-4 h-4 text-blue-500" />
             <span className="text-sm text-slate-500">Entradas</span>
           </div>
           <p className="text-2xl font-bold text-blue-600">{summary.inbound}</p>
         </div>
         <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
           <div className="flex items-center gap-2 mb-1">
-            <ArrowUp className="w-4 h-4 text-red-500" />
+            <ArrowUpFromLine className="w-4 h-4 text-red-500" />
             <span className="text-sm text-slate-500">Saídas</span>
           </div>
           <p className="text-2xl font-bold text-red-600">{summary.outbound}</p>
@@ -214,7 +252,7 @@ export default function Movements() {
             </tbody>
           </table>
         </div>
-        {filteredMovements.length === 0 && (
+        {filteredMovements.length === 0 && !supabaseLoading && (
           <div className="p-8 text-center text-slate-400">
             Nenhuma movimentação encontrada.
           </div>

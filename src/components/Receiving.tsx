@@ -1,15 +1,32 @@
 import { useState } from 'react';
-import { Package, CheckCircle, Clock, AlertCircle, XCircle, Plus } from 'lucide-react';
+import { useReceipts, useCreateReceipt, useConfirmReceipt, useCancelReceipt, useUpdateReceivedQuantity } from '../hooks/useReceiving';
+import { useAuth } from '../contexts/AuthContext';
+import { Plus, CheckCircle, XCircle, Clock, AlertCircle, Package } from 'lucide-react';
+import { receivingOrders as demoReceipts } from '../data';
 import { ReceivingOrder } from '../types';
-import { receivingOrders as initialOrders } from '../data';
 
 export default function Receiving() {
-  const [orders, setOrders] = useState<ReceivingOrder[]>(initialOrders);
-  const [statusFilter, setStatusFilter] = useState('all');
+  const { user } = useAuth();
+  const { receipts: supabaseReceipts, loading: supabaseLoading, error: supabaseError, refresh } = useReceipts();
+  const { createNewReceipt, loading: creating } = useCreateReceipt();
+  const { confirm, loading: confirming } = useConfirmReceipt();
+  const { cancel, loading: cancelling } = useCancelReceipt();
+  const { update, loading: updating } = useUpdateReceivedQuantity();
+  
+  // Usar dados do Supabase se disponíveis, senão usar dados de demonstração
+  const [receipts, setReceipts] = useState<ReceivingOrder[]>(demoReceipts);
+  const [usingSupabase, setUsingSupabase] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | ReceivingOrder['status']>('all');
   const [showModal, setShowModal] = useState(false);
 
-  const filteredOrders = orders.filter(o => 
-    statusFilter === 'all' || o.status === statusFilter
+  // Tentar carregar do Supabase
+  if (!supabaseLoading && supabaseReceipts.length > 0 && !usingSupabase) {
+    setReceipts(supabaseReceipts as unknown as ReceivingOrder[]);
+    setUsingSupabase(true);
+  }
+
+  const filteredReceipts = receipts.filter(r => 
+    statusFilter === 'all' || r.status === statusFilter
   );
 
   const getStatusIcon = (status: string) => {
@@ -42,27 +59,45 @@ export default function Receiving() {
     }
   };
 
-  const handleComplete = (orderId: string) => {
-    setOrders(orders.map(o => 
-      o.id === orderId 
-        ? { ...o, status: 'completed' as const, items: o.items.map(i => ({ ...i, received: i.expected })) }
-        : o
-    ));
+  const handleComplete = async (orderId: string) => {
+    try {
+      if (usingSupabase) {
+        await confirm(orderId);
+        await refresh();
+      } else {
+        setReceipts(receipts.map(o => 
+          o.id === orderId 
+            ? { ...o, status: 'completed' as const, items: o.items.map((i: any) => ({ ...i, received: i.expected })) }
+            : o
+        ));
+      }
+    } catch (error) {
+      alert('Erro ao confirmar recebimento: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
+    }
   };
 
-  const handleCancel = (orderId: string) => {
-    if (confirm('Tem certeza que deseja cancelar esta ordem de recebimento?')) {
-      setOrders(orders.map(o => 
-        o.id === orderId ? { ...o, status: 'cancelled' as const } : o
-      ));
+  const handleCancel = async (orderId: string) => {
+    if (!confirm('Tem certeza que deseja cancelar esta ordem de recebimento?')) return;
+    
+    try {
+      if (usingSupabase) {
+        await cancel(orderId);
+        await refresh();
+      } else {
+        setReceipts(receipts.map(o => 
+          o.id === orderId ? { ...o, status: 'cancelled' as const } : o
+        ));
+      }
+    } catch (error) {
+      alert('Erro ao cancelar recebimento: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
     }
   };
 
   const summary = {
-    pending: orders.filter(o => o.status === 'pending').length,
-    partial: orders.filter(o => o.status === 'partial').length,
-    completed: orders.filter(o => o.status === 'completed').length,
-    cancelled: orders.filter(o => o.status === 'cancelled').length,
+    pending: receipts.filter(o => o.status === 'pending').length,
+    partial: receipts.filter(o => o.status === 'partial').length,
+    completed: receipts.filter(o => o.status === 'completed').length,
+    cancelled: receipts.filter(o => o.status === 'cancelled').length,
   };
 
   return (
@@ -70,7 +105,19 @@ export default function Receiving() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Recebimento</h1>
-          <p className="text-slate-500">Ordens de recebimento e conferência</p>
+          <p className="text-slate-500">
+            Ordens de recebimento e conferência
+            {usingSupabase && (
+              <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                Conectado ao Supabase
+              </span>
+            )}
+            {!usingSupabase && !supabaseLoading && (
+              <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                Modo demonstração
+              </span>
+            )}
+          </p>
         </div>
         <button
           onClick={() => setShowModal(true)}
@@ -80,6 +127,19 @@ export default function Receiving() {
           Nova Ordem
         </button>
       </div>
+
+      {/* Error message */}
+      {supabaseError && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-amber-800">Usando dados de demonstração</p>
+            <p className="text-xs text-amber-700 mt-1">
+              Não foi possível conectar ao Supabase: {supabaseError}. Configure o arquivo .env e execute as migrations.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -115,7 +175,7 @@ export default function Receiving() {
 
       {/* Filters */}
       <div className="flex gap-2">
-        {['all', 'pending', 'partial', 'completed', 'cancelled'].map(status => (
+        {(['all', 'pending', 'partial', 'completed', 'cancelled'] as const).map(status => (
           <button
             key={status}
             onClick={() => setStatusFilter(status)}
@@ -132,7 +192,7 @@ export default function Receiving() {
 
       {/* Orders List */}
       <div className="space-y-4">
-        {filteredOrders.map(order => (
+        {filteredReceipts.map(order => (
           <div key={order.id} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -193,13 +253,15 @@ export default function Receiving() {
               <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
                 <button
                   onClick={() => handleCancel(order.id)}
-                  className="px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                  disabled={cancelling}
+                  className="px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={() => handleComplete(order.id)}
-                  className="px-3 py-1.5 text-sm text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+                  disabled={confirming}
+                  className="px-3 py-1.5 text-sm text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
                 >
                   Concluir Recebimento
                 </button>
@@ -209,7 +271,7 @@ export default function Receiving() {
         ))}
       </div>
 
-      {filteredOrders.length === 0 && (
+      {filteredReceipts.length === 0 && !supabaseLoading && (
         <div className="bg-white rounded-xl p-8 text-center text-slate-400 shadow-sm border border-slate-100">
           Nenhuma ordem de recebimento encontrada.
         </div>
@@ -255,7 +317,8 @@ export default function Receiving() {
                 </button>
                 <button
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  disabled={creating}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                 >
                   Criar Ordem
                 </button>
