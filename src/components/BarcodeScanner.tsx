@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Camera, Upload, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Camera, CameraOff, Upload, X } from 'lucide-react';
+import { Html5Qrcode } from 'html5-qrcode';
 
 interface BarcodeScannerProps {
   onScan: (code: string) => void;
@@ -8,7 +9,81 @@ interface BarcodeScannerProps {
 }
 
 export default function BarcodeScanner({ onScan, onClose, compact = false }: BarcodeScannerProps) {
+  const [scanning, setScanning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [manualCode, setManualCode] = useState('');
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const containerId = useRef(`barcode-scanner-${Math.random().toString(36).substring(7)}`);
+
+  useEffect(() => {
+    return () => {
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().catch(() => {});
+      }
+    };
+  }, []);
+
+  const startScanning = async () => {
+    try {
+      setError(null);
+      
+      const scanner = new Html5Qrcode(containerId.current);
+      scannerRef.current = scanner;
+
+      await scanner.start(
+        { facingMode: 'environment' },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
+        },
+        (decodedText) => {
+          onScan(decodedText);
+          // Vibrar se disponível
+          if (navigator.vibrate) {
+            navigator.vibrate(200);
+          }
+        },
+        (errorMessage) => {
+          // Erros de parse são normais, ignorar
+          if (!errorMessage.includes('NotFoundException')) {
+            console.warn('Scan error:', errorMessage);
+          }
+        }
+      );
+
+      setScanning(true);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Erro ao iniciar câmera';
+      setError(errorMessage);
+      console.error('Scanner error:', err);
+    }
+  };
+
+  const stopScanning = async () => {
+    if (scannerRef.current && scannerRef.current.isScanning) {
+      try {
+        await scannerRef.current.stop();
+        setScanning(false);
+      } catch (err) {
+        console.error('Error stopping scanner:', err);
+      }
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setError(null);
+      const scanner = new Html5Qrcode(containerId.current);
+      const decodedText = await scanner.scanFile(file, true);
+      onScan(decodedText);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Erro ao ler imagem';
+      setError(errorMessage);
+    }
+  };
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,7 +98,7 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
       {/* Header */}
       <div className="p-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-slate-300"></div>
+          <div className={`w-2 h-2 rounded-full ${scanning ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`}></div>
           <span className="text-sm font-medium text-slate-700">
             Scanner de Código de Barras
           </span>
@@ -35,20 +110,56 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
         )}
       </div>
 
-      {/* Scanner area placeholder */}
+      {/* Scanner area */}
       <div className="relative bg-slate-900">
         <div
-          className="w-full flex flex-col items-center justify-center text-white"
+          id={containerId.current}
+          className="w-full"
           style={{ minHeight: compact ? '180px' : '260px' }}
-        >
-          <Camera className="w-12 h-12 mb-3 text-slate-400" />
-          <p className="text-sm text-slate-300 mb-1">Scanner de câmera</p>
-          <p className="text-xs text-slate-500">Use o campo manual abaixo</p>
-        </div>
+        />
+        {!scanning && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
+            <Camera className="w-12 h-12 mb-3 text-slate-400" />
+            <p className="text-sm text-slate-300 mb-1">Scanner de câmera</p>
+            <p className="text-xs text-slate-500">Use o campo manual abaixo</p>
+          </div>
+        )}
+      </div>
+
+      {/* Controls */}
+      <div className="p-3 flex items-center gap-2">
+        {!scanning ? (
+          <button
+            onClick={startScanning}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+          >
+            <Camera className="w-4 h-4" />
+            Iniciar Scanner
+          </button>
+        ) : (
+          <button
+            onClick={stopScanning}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium"
+          >
+            <CameraOff className="w-4 h-4" />
+            Parar Scanner
+          </button>
+        )}
+        <label className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors cursor-pointer text-sm font-medium">
+          <Upload className="w-4 h-4" />
+          Imagem
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
+        </label>
       </div>
 
       {/* Manual input */}
-      <div className="p-3">
+      <div className="p-3 border-t border-slate-100">
         <form onSubmit={handleManualSubmit} className="flex gap-2">
           <input
             type="text"
@@ -66,6 +177,15 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
           </button>
         </form>
       </div>
+
+      {/* Error */}
+      {error && (
+        <div className="px-3 pb-3">
+          <div className="p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+            {error}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

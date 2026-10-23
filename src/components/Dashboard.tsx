@@ -1,8 +1,26 @@
-import { Package, MapPin, AlertTriangle, TrendingUp, ArrowDown, ArrowUp } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Package, MapPin, AlertTriangle, TrendingUp, ArrowDown, ArrowUp, Loader2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 import { products, movements, receivingOrders, shippingOrders, locations } from '../data';
 
 export default function Dashboard() {
+  const [loading, setLoading] = useState(true);
+  const [usingSupabase, setUsingSupabase] = useState(false);
+
+  useEffect(() => {
+    // Simular carregamento
+    setTimeout(() => setLoading(false), 500);
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+        <span className="ml-2 text-slate-600">Carregando dashboard...</span>
+      </div>
+    );
+  }
+
   const totalProducts = products.length;
   const totalItems = products.reduce((sum, p) => sum + p.quantity, 0);
   const lowStockProducts = products.filter(p => p.quantity <= p.minStock);
@@ -53,7 +71,14 @@ export default function Dashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Dashboard</h1>
-          <p className="text-slate-500">Visão geral do armazém</p>
+          <p className="text-slate-500">
+            Visão geral do armazém
+            {!usingSupabase && (
+              <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                Modo demonstração
+              </span>
+            )}
+          </p>
         </div>
         <div className="text-sm text-slate-500">
           Última atualização: {new Date().toLocaleString('pt-BR')}
