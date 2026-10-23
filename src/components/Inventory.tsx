@@ -1,14 +1,42 @@
-import { useState } from 'react';
-import { Search, Filter, Plus, Edit2, Trash2, AlertTriangle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Filter, Plus, Edit2, Trash2, AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
 import { Product } from '../types';
-import { products as initialProducts } from '../data';
+import { products as demoProducts } from '../data';
+import { useProducts } from '../hooks/useProducts';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Inventory() {
-  const [products, setProducts] = useState<Product[]>(initialProducts);
+  const { user } = useAuth();
+  const { products: supabaseProducts, loading: supabaseLoading, error: supabaseError, refresh, addProduct, editProduct, removeProduct } = useProducts();
+  
+  // Usar dados do Supabase se disponíveis, senão usar dados de demonstração
+  const [products, setProducts] = useState<Product[]>(demoProducts);
+  const [usingSupabase, setUsingSupabase] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+  // Tentar carregar do Supabase
+  useEffect(() => {
+    if (!supabaseLoading && supabaseProducts.length > 0) {
+      // Converter formato do Supabase para formato do frontend
+      const convertedProducts: Product[] = supabaseProducts.map(p => ({
+        id: p.id,
+        sku: p.sku,
+        name: p.name,
+        category: p.category || 'Geral',
+        quantity: 0, // Será calculado pelo estoque
+        unit: p.unit_base,
+        location: 'N/A', // Será calculado pelo estoque
+        minStock: p.min_stock,
+        maxStock: p.max_stock || 0,
+        lastUpdate: p.updated_at.split('T')[0],
+      }));
+      setProducts(convertedProducts);
+      setUsingSupabase(true);
+    }
+  }, [supabaseProducts, supabaseLoading]);
 
   const categories = [...new Set(products.map(p => p.category))];
 
@@ -19,9 +47,17 @@ export default function Inventory() {
     return matchesSearch && matchesCategory;
   });
 
-  const handleDelete = (id: string) => {
-    if (confirm('Tem certeza que deseja excluir este produto?')) {
-      setProducts(products.filter(p => p.id !== id));
+  const handleDelete = async (id: string) => {
+    if (!confirm('Tem certeza que deseja excluir este produto?')) return;
+    
+    try {
+      if (usingSupabase) {
+        await removeProduct(id);
+      } else {
+        setProducts(products.filter(p => p.id !== id));
+      }
+    } catch (error) {
+      alert('Erro ao excluir produto: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
     }
   };
 
@@ -35,13 +71,41 @@ export default function Inventory() {
     setShowModal(true);
   };
 
-  const handleSave = (product: Product) => {
-    if (editingProduct) {
-      setProducts(products.map(p => p.id === product.id ? product : p));
-    } else {
-      setProducts([...products, { ...product, id: String(Date.now()) }]);
+  const handleSave = async (product: Product) => {
+    try {
+      if (usingSupabase) {
+        if (editingProduct) {
+          await editProduct(product.id, {
+            sku: product.sku,
+            name: product.name,
+            category: product.category,
+            unit_base: product.unit,
+            min_stock: product.minStock,
+            max_stock: product.maxStock,
+          });
+        } else {
+          await addProduct({
+            sku: product.sku,
+            name: product.name,
+            category: product.category,
+            unit_base: product.unit,
+            min_stock: product.minStock,
+            max_stock: product.maxStock,
+            active: true,
+          });
+        }
+        await refresh();
+      } else {
+        if (editingProduct) {
+          setProducts(products.map(p => p.id === product.id ? product : p));
+        } else {
+          setProducts([...products, { ...product, id: String(Date.now()) }]);
+        }
+      }
+      setShowModal(false);
+    } catch (error) {
+      alert('Erro ao salvar produto: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
     }
-    setShowModal(false);
   };
 
   return (
@@ -49,16 +113,58 @@ export default function Inventory() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Inventário</h1>
-          <p className="text-slate-500">{products.length} produtos cadastrados</p>
+          <p className="text-slate-500">
+            {products.length} produtos cadastrados
+            {usingSupabase && (
+              <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                Conectado ao Supabase
+              </span>
+            )}
+            {!usingSupabase && !supabaseLoading && (
+              <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                Modo demonstração
+              </span>
+            )}
+          </p>
         </div>
-        <button
-          onClick={handleAdd}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Novo Produto
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={refresh}
+            className="flex items-center gap-2 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
+            title="Atualizar"
+          >
+            <RefreshCw className={`w-4 h-4 ${supabaseLoading ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            onClick={handleAdd}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Novo Produto
+          </button>
+        </div>
       </div>
+
+      {/* Error message */}
+      {supabaseError && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-amber-800">Usando dados de demonstração</p>
+            <p className="text-xs text-amber-700 mt-1">
+              Não foi possível conectar ao Supabase: {supabaseError}. Configure o arquivo .env e execute as migrations.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Loading state */}
+      {supabaseLoading && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+          <span className="ml-2 text-slate-600">Carregando produtos...</span>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-4">
@@ -155,7 +261,7 @@ export default function Inventory() {
             </tbody>
           </table>
         </div>
-        {filteredProducts.length === 0 && (
+        {filteredProducts.length === 0 && !supabaseLoading && (
           <div className="p-8 text-center text-slate-400">
             Nenhum produto encontrado.
           </div>

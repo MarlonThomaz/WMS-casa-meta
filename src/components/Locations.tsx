@@ -1,7 +1,36 @@
-import { MapPin, CheckCircle, XCircle, Clock, Wrench } from 'lucide-react';
-import { locations } from '../data';
+import { useState, useEffect } from 'react';
+import { MapPin, CheckCircle, XCircle, Clock, Wrench, Loader2, RefreshCw } from 'lucide-react';
+import { Location } from '../types';
+import { locations as demoLocations } from '../data';
+import { useLocationsWithOccupancy } from '../hooks/useLocations';
 
 export default function Locations() {
+  const { locations: supabaseLocations, loading: supabaseLoading, error: supabaseError, refresh } = useLocationsWithOccupancy();
+  
+  // Usar dados do Supabase se disponíveis, senão usar dados de demonstração
+  const [locations, setLocations] = useState<Location[]>(demoLocations);
+  const [usingSupabase, setUsingSupabase] = useState(false);
+
+  // Tentar carregar do Supabase
+  useEffect(() => {
+    if (!supabaseLoading && supabaseLocations.length > 0) {
+      // Converter formato do Supabase para formato do frontend
+      const convertedLocations: Location[] = supabaseLocations.map(l => ({
+        id: l.id,
+        code: l.code,
+        zone: l.zone,
+        aisle: l.aisle || '',
+        rack: l.rack || '',
+        level: l.level || '',
+        capacity: l.capacity || 0,
+        occupied: l.total_quantity || 0,
+        status: l.status as Location['status'],
+      }));
+      setLocations(convertedLocations);
+      setUsingSupabase(true);
+    }
+  }, [supabaseLocations, supabaseLoading]);
+
   const zones = [...new Set(locations.map(l => l.zone))];
   
   const getStatusIcon = (status: string) => {
@@ -53,9 +82,49 @@ export default function Locations() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Localizações</h1>
-          <p className="text-slate-500">Mapa do armazém e endereçamentos</p>
+          <p className="text-slate-500">
+            Mapa do armazém e endereçamentos
+            {usingSupabase && (
+              <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                Conectado ao Supabase
+              </span>
+            )}
+            {!usingSupabase && !supabaseLoading && (
+              <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                Modo demonstração
+              </span>
+            )}
+          </p>
         </div>
+        <button
+          onClick={refresh}
+          className="flex items-center gap-2 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
+          title="Atualizar"
+        >
+          <RefreshCw className={`w-4 h-4 ${supabaseLoading ? 'animate-spin' : ''}`} />
+        </button>
       </div>
+
+      {/* Error message */}
+      {supabaseError && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+          <Wrench className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-amber-800">Usando dados de demonstração</p>
+            <p className="text-xs text-amber-700 mt-1">
+              Não foi possível conectar ao Supabase: {supabaseError}. Configure o arquivo .env e execute as migrations.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Loading state */}
+      {supabaseLoading && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+          <span className="ml-2 text-slate-600">Carregando localizações...</span>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

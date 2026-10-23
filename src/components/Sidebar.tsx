@@ -1,6 +1,7 @@
-import { LayoutDashboard, Package, MapPin, ArrowDown, ArrowUp, ArrowLeftRight, Building2, Download, Box, HelpCircle } from 'lucide-react';
+import { LayoutDashboard, Package, MapPin, ArrowDown, ArrowUp, ArrowLeftRight, Building2, Download, Box, HelpCircle, LogOut } from 'lucide-react';
 import { Page } from '../types';
 import { downloadProjectZip } from '../downloadProject';
+import { useAuth } from '../contexts/AuthContext';
 
 interface SidebarProps {
   currentPage: Page;
@@ -19,6 +20,16 @@ const menuItems = [
 ];
 
 export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
+  const { user, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+    } catch (error) {
+      console.error('Erro ao fazer logout:', error);
+    }
+  };
+
   return (
     <aside className="w-64 bg-slate-900 text-white flex flex-col min-h-screen">
       <div className="p-4 border-b border-slate-700">
@@ -66,13 +77,28 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
           Baixar Projeto (.zip)
         </button>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center">
-            <span className="text-sm font-medium">CS</span>
+          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+            <span className="text-sm font-medium">
+              {user?.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'}
+            </span>
           </div>
-          <div>
-            <p className="text-sm font-medium">Carlos Silva</p>
-            <p className="text-xs text-slate-400">Operador</p>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">
+              {user?.full_name || 'Usuário'}
+            </p>
+            <p className="text-xs text-slate-400 truncate">
+              {user?.role === 'admin' ? 'Administrador' : 
+               user?.role === 'manager' ? 'Gerente' : 
+               user?.role === 'operator' ? 'Operador' : 'Visualizador'}
+            </p>
           </div>
+          <button
+            onClick={handleSignOut}
+            className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors"
+            title="Sair"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </aside>
