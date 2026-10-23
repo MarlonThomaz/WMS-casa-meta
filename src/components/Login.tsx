@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { LogIn, UserPlus, Loader2, AlertCircle } from 'lucide-react';
 
 export default function Login() {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, isDemo } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -44,6 +44,11 @@ export default function Login() {
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">WMS Casa Meta</h1>
           <p className="text-slate-300">Sistema de Gerenciamento de Armazém</p>
+          {isDemo && (
+            <div className="mt-3 inline-block px-3 py-1 bg-amber-500/20 border border-amber-400/50 rounded-full">
+              <p className="text-xs text-amber-200">⚠️ Modo Demonstração</p>
+            </div>
+          )}
         </div>
 
         {/* Card de Login */}
@@ -63,6 +68,15 @@ export default function Login() {
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
               <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
+
+          {isDemo && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800 font-medium mb-1">🎯 Modo Demonstração</p>
+              <p className="text-xs text-blue-700">
+                Digite qualquer email e senha para entrar. Os dados são de demonstração e não são persistidos.
+              </p>
             </div>
           )}
 
