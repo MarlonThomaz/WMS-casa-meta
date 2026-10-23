@@ -6,7 +6,23 @@ Sistema web de gerenciamento de armazém para a operação da Casa Meta, desenvo
 
 O projeto está em **estabilização para piloto web controlado**. Não deve ser tratado como produto concluído nem implantado em produção sem validar os fluxos operacionais no ambiente Supabase de teste.
 
-A prioridade atual é garantir que uma única versão web execute de ponta a ponta:
+## Demo isolada
+
+Abra a branch de estabilização no StackBlitz:
+
+```text
+https://stackblitz.com/github/MarlonThomaz/WMS-casa-meta/tree/wms-stabilization-round8?startScript=dev
+```
+
+A demo roda sem credenciais e sem acesso ao banco real. Ela usa dados fictícios em memória para produtos, localizações, recebimento, expedição, movimentações, scanner e contagem física. Uma faixa amarela identifica o ambiente; alterações são temporárias e resetam ao recarregar.
+
+A branch passou TypeScript, build de produção, migrations e regressões transacionais/RLS após a implementação do modo demo.
+
+Um workflow `Demo Pages` também está preparado para publicação no GitHub Pages. Ele permanece manual até Pages ser habilitado em **Settings > Pages > Build and deployment > GitHub Actions**.
+
+## Escopo atual
+
+A versão web em estabilização cobre:
 
 - autenticação e perfis;
 - produtos e códigos de barras;
@@ -17,23 +33,7 @@ A prioridade atual é garantir que uma única versão web execute de ponta a pon
 - contagem física;
 - auditoria e permissões por papel.
 
-PWA, Electron/Windows, Android e iOS **não fazem parte do critério de pronto da fase atual**. Os arquivos experimentais dessas plataformas podem permanecer no repositório, mas não devem ser considerados builds suportados até receberem uma rodada própria de validação.
-
-## Demo isolada
-
-A branch de estabilização inclui um modo demo sem credenciais e sem acesso ao banco real. Ele usa dados fictícios em memória para produtos, localizações, recebimento, expedição, movimentações, scanner e contagem física.
-
-Para abrir a branch no StackBlitz e iniciar o Vite automaticamente:
-
-```text
-https://stackblitz.com/github/MarlonThomaz/WMS-casa-meta/tree/wms-stabilization-round8?startScript=dev
-```
-
-A demo é identificada por uma faixa amarela no topo. Alterações feitas nela são temporárias e voltam ao estado inicial ao recarregar a página.
-
-A última validação da branch após a implementação do modo demo passou TypeScript, build de produção, migrations e regressões transacionais/RLS na CI.
-
-Há também um workflow `Demo Pages`, preparado para publicar a mesma demo em GitHub Pages. Ele fica manual até Pages ser habilitado em **Settings > Pages > Build and deployment > GitHub Actions**.
+PWA, Electron/Windows, Android e iOS não fazem parte do critério de pronto desta fase.
 
 ## Stack
 
@@ -50,7 +50,7 @@ Há também um workflow `Demo Pages`, preparado para publicar a mesma demo em Gi
 - Node.js 22 recomendado para reproduzir a CI atual;
 - npm;
 - um projeto Supabase de teste;
-- URL e anon key do Supabase.
+- URL e anon key do Supabase para o modo real.
 
 ## Configuração local
 
@@ -59,7 +59,7 @@ npm install
 cp .env.example .env
 ```
 
-Preencha o `.env`:
+Preencha o `.env` para um backend real:
 
 ```env
 VITE_SUPABASE_URL=https://seu-projeto.supabase.co
@@ -67,29 +67,27 @@ VITE_SUPABASE_ANON_KEY=sua-chave-anon-aqui
 VITE_ENABLE_DEMO=false
 ```
 
-O modo demo é deliberadamente explícito. Para usá-lo sem backend local:
+Para usar somente a demonstração local:
 
 ```env
 VITE_ENABLE_DEMO=true
 ```
 
-Nunca use esse modo para validar regras de estoque, autorização ou persistência.
+Nunca use o modo demo para validar regras reais de autorização ou persistência.
 
 ## Banco de dados
 
 As migrations ficam em `supabase/migrations` e devem ser aplicadas em ordem numérica.
 
-A CI atualmente cria um PostgreSQL isolado, prepara uma compatibilidade mínima com o namespace `auth` do Supabase e aplica toda a cadeia de migrations do zero. Isso detecta SQL inválido, versões duplicadas e dependências quebradas entre migrations.
+A CI cria um PostgreSQL isolado, prepara uma compatibilidade mínima com o namespace `auth` do Supabase e aplica toda a cadeia de migrations do zero. Isso detecta SQL inválido, versões duplicadas e dependências quebradas entre migrations.
 
-Antes do piloto, a mesma cadeia deve ser validada em um **projeto Supabase de teste real**, porque recursos específicos do Supabase Auth/PostgREST não são integralmente reproduzidos pelo PostgreSQL genérico da CI.
+Antes do piloto, a mesma cadeia deve ser validada em um **projeto Supabase de teste real**, porque Supabase Auth/PostgREST não é reproduzido integralmente pelo PostgreSQL genérico da CI.
 
 ## Desenvolvimento
 
 ```bash
 npm run dev
 ```
-
-Por padrão o Vite usa a porta configurada em `vite.config.js`.
 
 ## Checks obrigatórios
 
@@ -117,7 +115,7 @@ Um build verde não substitui testes de comportamento do estoque.
 
 O navegador não é fonte confiável para `created_by`. O banco deriva a autoria do usuário autenticado.
 
-Operações que alteram estoque devem preferir RPCs transacionais. Atualmente há RPCs para criação/processamento atômico de movimentações e criação atômica de recebimentos e expedições.
+Operações que alteram estoque devem preferir RPCs transacionais.
 
 ### Estoque
 
@@ -185,7 +183,7 @@ Ainda é necessário concluir e registrar, no ambiente Supabase de teste:
 
 ## Git workflow
 
-Mudanças estruturais devem entrar por branch e pull request. Não faça merge de uma rodada de estabilização apenas porque o frontend compilou: verifique também os jobs de migrations e os testes funcionais relevantes.
+Mudanças estruturais entram por branch e pull request. Não faça merge de uma rodada de estabilização apenas porque o frontend compilou: verifique também migrations e testes funcionais.
 
 ## Escopo futuro
 
@@ -197,5 +195,3 @@ Após o piloto web estar estável, podem ser retomados separadamente:
 - iOS;
 - offline/sincronização;
 - distribuição de executáveis.
-
-Esses itens não são requisitos para validar o MVP web do armazém.
