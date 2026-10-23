@@ -29,6 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Se Supabase não está configurado, usar usuário demo
+    // IMPORTANTE: Isso só acontece quando NÃO há configuração, não quando há falha
     if (!isSupabaseConfigured) {
       setUser(DEMO_USER);
       setLoading(false);
@@ -43,8 +44,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setLoading(false);
       }
-    }).catch(() => {
-      setUser(DEMO_USER);
+    }).catch((error) => {
+      // CORREÇÃO: Falha de autenticação NÃO deve resultar em usuário demo
+      // quando Supabase está configurado
+      console.error('Erro ao verificar sessão:', error);
+      setUser(null);
       setLoading(false);
     });
 
@@ -136,17 +140,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     if (error) throw error;
-
-    // Criar perfil do usuário
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      await supabase.from('profiles').insert({
-        id: user.id,
-        email: user.email!,
-        full_name: fullName,
-        role: 'operator',
-      });
-    }
+    
+    // Nota: O perfil será criado automaticamente pela trigger no banco
   }
 
   async function signOut() {

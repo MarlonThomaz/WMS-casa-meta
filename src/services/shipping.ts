@@ -1,41 +1,10 @@
-import { supabase } from '../lib/supabase';
-
-export type Shipment = {
-  id: string;
-  shipment_number: string;
-  customer_name: string;
-  customer_reference?: string;
-  carrier?: string;
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  expected_date?: string;
-  actual_date?: string;
-  status: 'pending' | 'picking' | 'packed' | 'shipped' | 'cancelled';
-  operator_id?: string;
-  notes?: string;
-  created_at: string;
-  completed_at?: string;
-  created_by?: string;
-};
-
-export type ShipmentLine = {
-  id: string;
-  shipment_id: string;
-  product_id: string;
-  requested_quantity: number;
-  picked_quantity: number;
-  from_location_id?: string;
-  unit: string;
-  notes?: string;
-  created_at: string;
-  updated_at: string;
-};
-
-export type ShipmentWithLines = Shipment & {
-  lines: ShipmentLine[];
-};
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { DBShipment, DBShipmentLine, ShipmentWithLines } from '../types';
 
 // Buscar todas as expedições
-export async function getShipments(limit = 100): Promise<Shipment[]> {
+export async function getShipments(limit = 100): Promise<DBShipment[]> {
+  if (!isSupabaseConfigured) return [];
+  
   const { data, error } = await supabase
     .from('shipments')
     .select('*')
@@ -48,6 +17,8 @@ export async function getShipments(limit = 100): Promise<Shipment[]> {
 
 // Buscar expedição por ID com linhas
 export async function getShipmentById(id: string): Promise<ShipmentWithLines | null> {
+  if (!isSupabaseConfigured) return null;
+  
   const { data: shipment, error: shipmentError } = await supabase
     .from('shipments')
     .select('*')
@@ -70,41 +41,19 @@ export async function getShipmentById(id: string): Promise<ShipmentWithLines | n
   };
 }
 
-// Buscar expedições por status
-export async function getShipmentsByStatus(status: Shipment['status']): Promise<Shipment[]> {
-  const { data, error } = await supabase
-    .from('shipments')
-    .select('*')
-    .eq('status', status)
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return data || [];
-}
-
-// Buscar expedições por prioridade
-export async function getShipmentsByPriority(priority: Shipment['priority']): Promise<Shipment[]> {
-  const { data, error } = await supabase
-    .from('shipments')
-    .select('*')
-    .eq('priority', priority)
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return data || [];
-}
-
 // Criar nova expedição
 export async function createShipment(shipment: {
   customer_name: string;
   customer_reference?: string;
   carrier?: string;
-  priority?: Shipment['priority'];
+  priority?: DBShipment['priority'];
   expected_date?: string;
   operator_id?: string;
   notes?: string;
-}): Promise<Shipment> {
-  // Gerar número único
+}): Promise<DBShipment> {
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+  
+  // Gerar número único usando sequência
   const { data: shipmentNumber, error: refError } = await supabase
     .rpc('generate_shipment_number');
 
@@ -134,7 +83,9 @@ export async function addShipmentLine(line: {
   from_location_id?: string;
   unit?: string;
   notes?: string;
-}): Promise<ShipmentLine> {
+}): Promise<DBShipmentLine> {
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+  
   const { data, error } = await supabase
     .from('shipment_lines')
     .insert([{
@@ -149,38 +100,20 @@ export async function addShipmentLine(line: {
   return data;
 }
 
-// Iniciar separação (picking)
+// CORREÇÃO CRÍTICA: Iniciar separação usando função atômica
+// Reserva todas as linhas de uma vez - se uma falhar, nenhuma é reservada
 export async function startPicking(shipmentId: string): Promise<void> {
-  const shipment = await getShipmentById(shipmentId);
-  if (!shipment) throw new Error('Expedição não encontrida');
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+  
+  // Usar função SQL atômica que reserva todas as linhas de uma vez
+  const { error } = await supabase.rpc('reserve_stock_for_shipment', {
+    p_shipment_id: shipmentId,
+  });
 
-  if (shipment.status !== 'pending') {
-    throw new Error('Expedição não está pendente');
+  // CORREÇÃO: Verificar explicitamente o erro retornado
+  if (error) {
+    throw new Error(`Falha ao iniciar separação: ${error.message}`);
   }
-
-  // Reservar estoque para cada linha
-  for (const line of shipment.lines) {
-    if (line.from_location_id) {
-      try {
-        await supabase.rpc('reserve_stock', {
-          p_product_id: line.product_id,
-          p_location_id: line.from_location_id,
-          p_quantity: line.requested_quantity,
-        });
-      } catch (error) {
-        // Se falhar, cancelar reservas anteriores
-        throw new Error(`Estoque insuficiente para produto ${line.product_id}`);
-      }
-    }
-  }
-
-  // Atualizar status
-  const { error } = await supabase
-    .from('shipments')
-    .update({ status: 'picking' })
-    .eq('id', shipmentId);
-
-  if (error) throw error;
 }
 
 // Confirmar quantidade separada
@@ -188,6 +121,8 @@ export async function confirmPickedQuantity(
   lineId: string,
   pickedQuantity: number
 ): Promise<void> {
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+  
   const { error } = await supabase
     .from('shipment_lines')
     .update({
@@ -199,62 +134,25 @@ export async function confirmPickedQuantity(
   if (error) throw error;
 }
 
-// Confirmar embalagem (packed)
+// CORREÇÃO CRÍTICA: Confirmar embalagem usando função atômica
+// Debita estoque e libera reservas de forma consistente
 export async function confirmPacked(shipmentId: string): Promise<void> {
-  const shipment = await getShipmentById(shipmentId);
-  if (!shipment) throw new Error('Expedição não encontrada');
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+  
+  // Usar função SQL atômica
+  const { error } = await supabase.rpc('confirm_shipment_picked', {
+    p_shipment_id: shipmentId,
+  });
 
-  if (shipment.status !== 'picking') {
-    throw new Error('Expedição não está em separação');
+  if (error) {
+    throw new Error(`Falha ao confirmar embalagem: ${error.message}`);
   }
-
-  // Confirmar estoque separado para cada linha
-  for (const line of shipment.lines) {
-    if (line.from_location_id && line.picked_quantity > 0) {
-      await supabase.rpc('confirm_picked_stock', {
-        p_product_id: line.product_id,
-        p_location_id: line.from_location_id,
-        p_quantity: line.picked_quantity,
-      });
-
-      // Criar movimentação de saída
-      const { data: movement, error: movementError } = await supabase
-        .from('movements')
-        .insert([{
-          movement_type: 'outbound',
-          status: 'completed',
-          source_reference: shipment.shipment_number,
-          operator_id: shipment.operator_id,
-          notes: `Expedição ${shipment.shipment_number}`,
-          completed_at: new Date().toISOString(),
-        }])
-        .select()
-        .single();
-
-      if (movementError) throw movementError;
-
-      // Adicionar linha da movimentação
-      await supabase.from('movement_lines').insert([{
-        movement_id: movement.id,
-        product_id: line.product_id,
-        from_location_id: line.from_location_id,
-        quantity: line.picked_quantity,
-        unit: line.unit,
-      }]);
-    }
-  }
-
-  // Atualizar status
-  const { error } = await supabase
-    .from('shipments')
-    .update({ status: 'packed' })
-    .eq('id', shipmentId);
-
-  if (error) throw error;
 }
 
-// Confirmar despacho (shipped)
+// Confirmar despacho
 export async function confirmShipped(shipmentId: string): Promise<void> {
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+  
   const shipment = await getShipmentById(shipmentId);
   if (!shipment) throw new Error('Expedição não encontrada');
 
@@ -262,7 +160,6 @@ export async function confirmShipped(shipmentId: string): Promise<void> {
     throw new Error('Expedição não está embalada');
   }
 
-  // Atualizar status
   const { error } = await supabase
     .from('shipments')
     .update({
@@ -275,21 +172,21 @@ export async function confirmShipped(shipmentId: string): Promise<void> {
   if (error) throw error;
 }
 
-// Cancelar expedição
+// Cancelar expedição - libera reservas se necessário
 export async function cancelShipment(shipmentId: string): Promise<void> {
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+  
   const shipment = await getShipmentById(shipmentId);
   if (!shipment) throw new Error('Expedição não encontrada');
 
   // Se estava em picking, liberar reservas
   if (shipment.status === 'picking') {
-    for (const line of shipment.lines) {
-      if (line.from_location_id) {
-        await supabase.rpc('release_reservation', {
-          p_product_id: line.product_id,
-          p_location_id: line.from_location_id,
-          p_quantity: line.requested_quantity,
-        });
-      }
+    const { error } = await supabase.rpc('release_shipment_reservations', {
+      p_shipment_id: shipmentId,
+    });
+
+    if (error) {
+      throw new Error(`Falha ao liberar reservas: ${error.message}`);
     }
   }
 
@@ -300,61 +197,4 @@ export async function cancelShipment(shipmentId: string): Promise<void> {
     .eq('id', shipmentId);
 
   if (error) throw error;
-}
-
-// Contar expedições por status
-export async function countShipmentsByStatus() {
-  const { data, error } = await supabase
-    .from('shipments')
-    .select('status');
-
-  if (error) throw error;
-
-  const counts = {
-    pending: 0,
-    picking: 0,
-    packed: 0,
-    shipped: 0,
-    cancelled: 0,
-  };
-
-  data?.forEach(s => {
-    counts[s.status as keyof typeof counts]++;
-  });
-
-  return counts;
-}
-
-// Contar expedições por prioridade
-export async function countShipmentsByPriority() {
-  const { data, error } = await supabase
-    .from('shipments')
-    .select('priority');
-
-  if (error) throw error;
-
-  const counts = {
-    low: 0,
-    medium: 0,
-    high: 0,
-    urgent: 0,
-  };
-
-  data?.forEach(s => {
-    counts[s.priority as keyof typeof counts]++;
-  });
-
-  return counts;
-}
-
-// Buscar expedições recentes
-export async function getRecentShipments(limit = 10): Promise<Shipment[]> {
-  const { data, error } = await supabase
-    .from('shipments')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
-  if (error) throw error;
-  return data || [];
 }

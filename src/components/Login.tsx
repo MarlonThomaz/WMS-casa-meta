@@ -1,6 +1,6 @@
-import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { LogIn, UserPlus, Loader2, AlertCircle } from 'lucide-react';
+import { useState } from 'react';
 
 export default function Login() {
   const { signIn, signUp, isDemo } = useAuth();
@@ -18,9 +18,7 @@ export default function Login() {
 
     try {
       if (isSignUp) {
-        if (!fullName.trim()) {
-          throw new Error('Nome completo é obrigatório');
-        }
+        if (!fullName.trim()) throw new Error('Nome completo é obrigatório');
         await signUp(email, password, fullName);
       } else {
         await signIn(email, password);
@@ -35,7 +33,6 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 p-4">
       <div className="w-full max-w-md">
-        {/* Logo e Título */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl mb-4">
             <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -51,17 +48,10 @@ export default function Login() {
           )}
         </div>
 
-        {/* Card de Login */}
         <div className="bg-white rounded-2xl shadow-2xl p-8">
           <div className="flex items-center justify-center mb-6">
-            {isSignUp ? (
-              <UserPlus className="w-6 h-6 text-blue-600 mr-2" />
-            ) : (
-              <LogIn className="w-6 h-6 text-blue-600 mr-2" />
-            )}
-            <h2 className="text-2xl font-bold text-slate-800">
-              {isSignUp ? 'Criar Conta' : 'Entrar'}
-            </h2>
+            {isSignUp ? <UserPlus className="w-6 h-6 text-blue-600 mr-2" /> : <LogIn className="w-6 h-6 text-blue-600 mr-2" />}
+            <h2 className="text-2xl font-bold text-slate-800">{isSignUp ? 'Criar Conta' : 'Entrar'}</h2>
           </div>
 
           {error && (
@@ -75,7 +65,7 @@ export default function Login() {
             <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-sm text-blue-800 font-medium mb-1">🎯 Modo Demonstração</p>
               <p className="text-xs text-blue-700">
-                Digite qualquer email e senha para entrar. Os dados são de demonstração e não são persistidos.
+                Digite qualquer email e senha para entrar. Os dados são de demonstração.
               </p>
             </div>
           )}
@@ -83,15 +73,12 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {isSignUp && (
               <div>
-                <label htmlFor="fullName" className="block text-sm font-medium text-slate-700 mb-1">
-                  Nome Completo
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
                 <input
-                  id="fullName"
                   type="text"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                   placeholder="Seu nome completo"
                   required={isSignUp}
                 />
@@ -99,30 +86,24 @@ export default function Login() {
             )}
 
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1">
-                Email
-              </label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
               <input
-                id="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 placeholder="seu@email.com"
                 required
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1">
-                Senha
-              </label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Senha</label>
               <input
-                id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 placeholder="••••••••"
                 required
                 minLength={6}
@@ -132,41 +113,18 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {loading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  {isSignUp ? 'Criando conta...' : 'Entrando...'}
-                </>
-              ) : (
-                <>
-                  {isSignUp ? <UserPlus className="w-5 h-5" /> : <LogIn className="w-5 h-5" />}
-                  {isSignUp ? 'Criar Conta' : 'Entrar'}
-                </>
-              )}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : isSignUp ? <UserPlus className="w-5 h-5" /> : <LogIn className="w-5 h-5" />}
+              {loading ? (isSignUp ? 'Criando...' : 'Entrando...') : isSignUp ? 'Criar Conta' : 'Entrar'}
             </button>
           </form>
 
           <div className="mt-6 text-center">
-            <button
-              onClick={() => {
-                setIsSignUp(!isSignUp);
-                setError(null);
-              }}
-              className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-            >
-              {isSignUp
-                ? 'Já tem uma conta? Entrar'
-                : 'Não tem uma conta? Criar conta'}
+            <button onClick={() => { setIsSignUp(!isSignUp); setError(null); }} className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+              {isSignUp ? 'Já tem uma conta? Entrar' : 'Não tem uma conta? Criar conta'}
             </button>
           </div>
-        </div>
-
-        {/* Informações */}
-        <div className="mt-6 text-center text-sm text-slate-400">
-          <p>WMS Casa Meta v1.0</p>
-          <p className="mt-1">Sistema de Gerenciamento de Armazém</p>
         </div>
       </div>
     </div>

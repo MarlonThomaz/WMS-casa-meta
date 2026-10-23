@@ -1,152 +1,121 @@
 -- ========================================
--- WMS Casa Meta - Motor de Estoque
--- Migration 002: Funções transacionais
+-- WMS Casa Meta - Motor de Estoque Seguro
+-- Migration 002: Funções transacionais com validações
 -- ========================================
 
 -- ========================================
--- FUNÇÃO: process_stock_movement
--- Função central para processar movimentações de estoque
--- Garante atomicidade e consistência
+-- FUNÇÃO: generate_movement_reference (USANDO SEQUÊNCIA)
 -- ========================================
-CREATE OR REPLACE FUNCTION process_stock_movement(
-  p_movement_id UUID,
-  p_product_id UUID,
-  p_from_location_id UUID,
-  p_to_location_id UUID,
-  p_quantity NUMERIC,
-  p_operator_id UUID
+CREATE OR REPLACE FUNCTION generate_movement_reference(p_type TEXT)
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_prefix TEXT;
+  v_year TEXT;
+  v_sequence INTEGER;
+BEGIN
+  CASE p_type
+    WHEN 'inbound' THEN v_prefix := 'IN';
+    WHEN 'outbound' THEN v_prefix := 'OUT';
+    WHEN 'transfer' THEN v_prefix := 'TR';
+    WHEN 'adjustment' THEN v_prefix := 'ADJ';
+    WHEN 'count' THEN v_prefix := 'CNT';
+    ELSE v_prefix := 'MOV';
+  END CASE;
+  
+  v_year := EXTRACT(YEAR FROM NOW())::TEXT;
+  v_sequence := nextval('movement_ref_seq');
+  
+  RETURN v_prefix || '-' || v_year || '-' || LPAD(v_sequence::TEXT, 6, '0');
+END;
+$$;
+
+-- ========================================
+-- FUNÇÃO: generate_receipt_number (USANDO SEQUÊNCIA)
+-- ========================================
+CREATE OR REPLACE FUNCTION generate_receipt_number()
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_year TEXT;
+  v_sequence INTEGER;
+BEGIN
+  v_year := EXTRACT(YEAR FROM NOW())::TEXT;
+  v_sequence := nextval('receipt_number_seq');
+  RETURN 'RC-' || v_year || '-' || LPAD(v_sequence::TEXT, 6, '0');
+END;
+$$;
+
+-- ========================================
+-- FUNÇÃO: generate_shipment_number (USANDO SEQUÊNCIA)
+-- ========================================
+CREATE OR REPLACE FUNCTION generate_shipment_number()
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_year TEXT;
+  v_sequence INTEGER;
+BEGIN
+  v_year := EXTRACT(YEAR FROM NOW())::TEXT;
+  v_sequence := nextval('shipment_number_seq');
+  RETURN 'SP-' || v_year || '-' || LPAD(v_sequence::TEXT, 6, '0');
+END;
+$$;
+
+-- ========================================
+-- FUNÇÃO: generate_count_number (USANDO SEQUÊNCIA)
+-- ========================================
+CREATE OR REPLACE FUNCTION generate_count_number()
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_year TEXT;
+  v_sequence INTEGER;
+BEGIN
+  v_year := EXTRACT(YEAR FROM NOW())::TEXT;
+  v_sequence := nextval('stock_count_number_seq');
+  RETURN 'CNT-' || v_year || '-' || LPAD(v_sequence::TEXT, 6, '0');
+END;
+$$;
+
+-- ========================================
+-- FUNÇÃO: log_audit_event
+-- ========================================
+CREATE OR REPLACE FUNCTION log_audit_event(
+  p_event_type TEXT,
+  p_entity_type TEXT,
+  p_entity_id UUID,
+  p_details JSONB DEFAULT NULL
 )
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  v_movement_type TEXT;
-  v_movement_status TEXT;
-  v_current_balance_from NUMERIC;
-  v_current_balance_to NUMERIC;
+  v_user_id UUID;
+  v_user_email TEXT;
 BEGIN
-  -- Buscar dados da movimentação
-  SELECT movement_type, status 
-  INTO v_movement_type, v_movement_status
-  FROM movements 
-  WHERE id = p_movement_id;
+  v_user_id := auth.uid();
   
-  -- Validar status da movimentação
-  IF v_movement_status NOT IN ('pending', 'in_progress') THEN
-    RAISE EXCEPTION 'Movimentação já foi processada ou cancelada';
-  END IF;
+  SELECT email INTO v_user_email
+  FROM profiles
+  WHERE id = v_user_id;
   
-  -- Validar quantidade
-  IF p_quantity <= 0 THEN
-    RAISE EXCEPTION 'Quantidade deve ser maior que zero';
-  END IF;
-  
-  -- Processar conforme tipo de movimentação
-  CASE v_movement_type
-    WHEN 'inbound' THEN
-      -- Entrada: creditar no destino
-      INSERT INTO stock_balances (product_id, location_id, quantity)
-      VALUES (p_product_id, p_to_location_id, p_quantity)
-      ON CONFLICT (product_id, location_id) 
-      DO UPDATE SET 
-        quantity = stock_balances.quantity + p_quantity,
-        last_movement_at = NOW(),
-        updated_at = NOW();
-        
-    WHEN 'outbound' THEN
-      -- Saída: debitar da origem
-      SELECT quantity INTO v_current_balance_from
-      FROM stock_balances
-      WHERE product_id = p_product_id AND location_id = p_from_location_id;
-      
-      IF v_current_balance_from IS NULL OR v_current_balance_from < p_quantity THEN
-        RAISE EXCEPTION 'Saldo insuficiente. Disponível: %, Solicitado: %', 
-          COALESCE(v_current_balance_from, 0), p_quantity;
-      END IF;
-      
-      UPDATE stock_balances
-      SET quantity = quantity - p_quantity,
-          last_movement_at = NOW(),
-          updated_at = NOW()
-      WHERE product_id = p_product_id AND location_id = p_from_location_id;
-      
-    WHEN 'transfer' THEN
-      -- Transferência: debitar da origem e creditar no destino
-      IF p_from_location_id = p_to_location_id THEN
-        RAISE EXCEPTION 'Origem e destino não podem ser iguais';
-      END IF;
-      
-      -- Validar saldo na origem
-      SELECT quantity INTO v_current_balance_from
-      FROM stock_balances
-      WHERE product_id = p_product_id AND location_id = p_from_location_id;
-      
-      IF v_current_balance_from IS NULL OR v_current_balance_from < p_quantity THEN
-        RAISE EXCEPTION 'Saldo insuficiente na origem. Disponível: %, Solicitado: %', 
-          COALESCE(v_current_balance_from, 0), p_quantity;
-      END IF;
-      
-      -- Debitar da origem
-      UPDATE stock_balances
-      SET quantity = quantity - p_quantity,
-          last_movement_at = NOW(),
-          updated_at = NOW()
-      WHERE product_id = p_product_id AND location_id = p_from_location_id;
-      
-      -- Creditar no destino
-      INSERT INTO stock_balances (product_id, location_id, quantity)
-      VALUES (p_product_id, p_to_location_id, p_quantity)
-      ON CONFLICT (product_id, location_id) 
-      DO UPDATE SET 
-        quantity = stock_balances.quantity + p_quantity,
-        last_movement_at = NOW(),
-        updated_at = NOW();
-        
-    WHEN 'adjustment' THEN
-      -- Ajuste: pode ser positivo ou negativo
-      IF p_from_location_id IS NOT NULL THEN
-        -- Ajuste negativo (perda, quebra, etc)
-        SELECT quantity INTO v_current_balance_from
-        FROM stock_balances
-        WHERE product_id = p_product_id AND location_id = p_from_location_id;
-        
-        IF v_current_balance_from IS NULL OR v_current_balance_from < p_quantity THEN
-          RAISE EXCEPTION 'Saldo insuficiente para ajuste. Disponível: %, Solicitado: %', 
-            COALESCE(v_current_balance_from, 0), p_quantity;
-        END IF;
-        
-        UPDATE stock_balances
-        SET quantity = quantity - p_quantity,
-            last_movement_at = NOW(),
-            updated_at = NOW()
-        WHERE product_id = p_product_id AND location_id = p_from_location_id;
-      ELSIF p_to_location_id IS NOT NULL THEN
-        -- Ajuste positivo (encontrado, correção, etc)
-        INSERT INTO stock_balances (product_id, location_id, quantity)
-        VALUES (p_product_id, p_to_location_id, p_quantity)
-        ON CONFLICT (product_id, location_id) 
-        DO UPDATE SET 
-          quantity = stock_balances.quantity + p_quantity,
-          last_movement_at = NOW(),
-          updated_at = NOW();
-      END IF;
-      
-    ELSE
-      RAISE EXCEPTION 'Tipo de movimentação inválido: %', v_movement_type;
-  END CASE;
-  
-  -- Atualizar status da movimentação
-  UPDATE movements
-  SET status = 'completed',
-      completed_at = NOW()
-  WHERE id = p_movement_id;
+  INSERT INTO audit_events (event_type, entity_type, entity_id, user_id, user_email, details)
+  VALUES (p_event_type, p_entity_type, p_entity_id, v_user_id, v_user_email, p_details);
 END;
 $$;
 
 -- ========================================
 -- FUNÇÃO: get_product_total_stock
--- Retorna o estoque total de um produto
 -- ========================================
 CREATE OR REPLACE FUNCTION get_product_total_stock(p_product_id UUID)
 RETURNS NUMERIC
@@ -167,7 +136,6 @@ $$;
 
 -- ========================================
 -- FUNÇÃO: get_product_stock_by_location
--- Retorna o estoque de um produto por endereço
 -- ========================================
 CREATE OR REPLACE FUNCTION get_product_stock_by_location(p_product_id UUID)
 RETURNS TABLE (
@@ -197,7 +165,6 @@ $$;
 
 -- ========================================
 -- FUNÇÃO: get_location_occupancy
--- Retorna a ocupação de um endereço
 -- ========================================
 CREATE OR REPLACE FUNCTION get_location_occupancy(p_location_id UUID)
 RETURNS TABLE (
@@ -231,101 +198,7 @@ END;
 $$;
 
 -- ========================================
--- FUNÇÃO: reserve_stock
--- Reserva estoque para expedição
--- ========================================
-CREATE OR REPLACE FUNCTION reserve_stock(
-  p_product_id UUID,
-  p_location_id UUID,
-  p_quantity NUMERIC
-)
-RETURNS VOID
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  v_available NUMERIC;
-BEGIN
-  -- Verificar disponibilidade
-  SELECT available_quantity INTO v_available
-  FROM stock_balances
-  WHERE product_id = p_product_id AND location_id = p_location_id;
-  
-  IF v_available IS NULL OR v_available < p_quantity THEN
-    RAISE EXCEPTION 'Estoque disponível insuficiente. Disponível: %, Solicitado: %', 
-      COALESCE(v_available, 0), p_quantity;
-  END IF;
-  
-  -- Reservar
-  UPDATE stock_balances
-  SET reserved_quantity = reserved_quantity + p_quantity,
-      updated_at = NOW()
-  WHERE product_id = p_product_id AND location_id = p_location_id;
-END;
-$$;
-
--- ========================================
--- FUNÇÃO: release_reservation
--- Libera reserva de estoque
--- ========================================
-CREATE OR REPLACE FUNCTION release_reservation(
-  p_product_id UUID,
-  p_location_id UUID,
-  p_quantity NUMERIC
-)
-RETURNS VOID
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-  UPDATE stock_balances
-  SET reserved_quantity = GREATEST(0, reserved_quantity - p_quantity),
-      updated_at = NOW()
-  WHERE product_id = p_product_id AND location_id = p_location_id;
-END;
-$$;
-
--- ========================================
--- FUNÇÃO: confirm_picked_stock
--- Confirma estoque separado (picking)
--- Debita quantidade física e libera reserva
--- ========================================
-CREATE OR REPLACE FUNCTION confirm_picked_stock(
-  p_product_id UUID,
-  p_location_id UUID,
-  p_quantity NUMERIC
-)
-RETURNS VOID
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  v_reserved NUMERIC;
-BEGIN
-  -- Verificar reserva
-  SELECT reserved_quantity INTO v_reserved
-  FROM stock_balances
-  WHERE product_id = p_product_id AND location_id = p_location_id;
-  
-  IF v_reserved IS NULL OR v_reserved < p_quantity THEN
-    RAISE EXCEPTION 'Reserva insuficiente. Reservado: %, Solicitado: %', 
-      COALESCE(v_reserved, 0), p_quantity;
-  END IF;
-  
-  -- Debitar quantidade física e liberar reserva
-  UPDATE stock_balances
-  SET 
-    quantity = quantity - p_quantity,
-    reserved_quantity = reserved_quantity - p_quantity,
-    last_movement_at = NOW(),
-    updated_at = NOW()
-  WHERE product_id = p_product_id AND location_id = p_location_id;
-END;
-$$;
-
--- ========================================
 -- FUNÇÃO: find_product_by_barcode
--- Busca produto por código de barras
 -- ========================================
 CREATE OR REPLACE FUNCTION find_product_by_barcode(p_barcode TEXT)
 RETURNS TABLE (
@@ -357,146 +230,589 @@ END;
 $$;
 
 -- ========================================
--- FUNÇÃO: generate_movement_reference
--- Gera referência única para movimentação
+-- FUNÇÃO: process_stock_movement (COM FOR UPDATE E VALIDAÇÕES)
 -- ========================================
-CREATE OR REPLACE FUNCTION generate_movement_reference(p_type TEXT)
-RETURNS TEXT
+CREATE OR REPLACE FUNCTION process_stock_movement(
+  p_movement_id UUID,
+  p_operator_id UUID
+)
+RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  v_prefix TEXT;
-  v_year TEXT;
-  v_sequence INTEGER;
-  v_reference TEXT;
+  v_movement_type TEXT;
+  v_movement_status TEXT;
+  v_line RECORD;
+  v_current_quantity NUMERIC;
 BEGIN
-  -- Definir prefixo conforme tipo
-  CASE p_type
-    WHEN 'inbound' THEN v_prefix := 'IN';
-    WHEN 'outbound' THEN v_prefix := 'OUT';
-    WHEN 'transfer' THEN v_prefix := 'TR';
-    WHEN 'adjustment' THEN v_prefix := 'ADJ';
-    WHEN 'count' THEN v_prefix := 'CNT';
-    ELSE v_prefix := 'MOV';
-  END CASE;
+  -- Validar usuário
+  IF p_operator_id IS NULL OR p_operator_id != auth.uid() THEN
+    IF public.user_role() NOT IN ('admin', 'manager') THEN
+      RAISE EXCEPTION 'Usuário não autorizado';
+    END IF;
+  END IF;
   
-  v_year := EXTRACT(YEAR FROM NOW())::TEXT;
-  
-  -- Buscar próximo número da sequência
-  SELECT COALESCE(MAX(
-    CAST(SUBSTRING(reference FROM '...-....-(\d+)') AS INTEGER)
-  ), 0) + 1
-  INTO v_sequence
+  -- BLOQUEAR movimentação com FOR UPDATE para evitar processamento duplicado
+  SELECT movement_type, status
+  INTO v_movement_type, v_movement_status
   FROM movements
-  WHERE reference LIKE v_prefix || '-' || v_year || '-%';
+  WHERE id = p_movement_id
+  FOR UPDATE;
   
-  v_reference := v_prefix || '-' || v_year || '-' || LPAD(v_sequence::TEXT, 4, '0');
+  -- Validar status
+  IF v_movement_status != 'pending' THEN
+    RAISE EXCEPTION 'Movimentação já foi processada ou cancelada (status: %)', v_movement_status;
+  END IF;
   
-  RETURN v_reference;
+  -- Marcar como em processamento imediatamente
+  UPDATE movements
+  SET status = 'in_progress', processed_at = NOW()
+  WHERE id = p_movement_id;
+  
+  -- Processar cada linha
+  FOR v_line IN
+    SELECT * FROM movement_lines WHERE movement_id = p_movement_id
+  LOOP
+    -- Validar quantidade
+    IF v_line.quantity <= 0 THEN
+      RAISE EXCEPTION 'Quantidade deve ser positiva';
+    END IF;
+    
+    CASE v_movement_type
+      WHEN 'inbound' THEN
+        -- Validar destino
+        IF v_line.to_location_id IS NULL THEN
+          RAISE EXCEPTION 'Localização de destino é obrigatória para entrada';
+        END IF;
+        
+        -- Creditar no destino
+        INSERT INTO stock_balances (product_id, location_id, quantity, last_movement_at)
+        VALUES (v_line.product_id, v_line.to_location_id, v_line.quantity, NOW())
+        ON CONFLICT (product_id, location_id)
+        DO UPDATE SET
+          quantity = stock_balances.quantity + v_line.quantity,
+          last_movement_at = NOW(),
+          updated_at = NOW();
+          
+      WHEN 'outbound' THEN
+        -- Validar origem
+        IF v_line.from_location_id IS NULL THEN
+          RAISE EXCEPTION 'Localização de origem é obrigatória para saída';
+        END IF;
+        
+        -- BLOQUEAR saldo com FOR UPDATE
+        SELECT quantity INTO v_current_quantity
+        FROM stock_balances
+        WHERE product_id = v_line.product_id AND location_id = v_line.from_location_id
+        FOR UPDATE;
+        
+        IF v_current_quantity IS NULL OR v_current_quantity < v_line.quantity THEN
+          RAISE EXCEPTION 'Saldo insuficiente. Disponível: %, Solicitado: %',
+            COALESCE(v_current_quantity, 0), v_line.quantity;
+        END IF;
+        
+        -- Debitar da origem
+        UPDATE stock_balances
+        SET quantity = quantity - v_line.quantity,
+            last_movement_at = NOW(),
+            updated_at = NOW()
+        WHERE product_id = v_line.product_id AND location_id = v_line.from_location_id;
+        
+      WHEN 'transfer' THEN
+        -- Validar origem e destino
+        IF v_line.from_location_id IS NULL OR v_line.to_location_id IS NULL THEN
+          RAISE EXCEPTION 'Origem e destino são obrigatórios para transferência';
+        END IF;
+        
+        IF v_line.from_location_id = v_line.to_location_id THEN
+          RAISE EXCEPTION 'Origem e destino não podem ser iguais';
+        END IF;
+        
+        -- BLOQUEAR saldo da origem com FOR UPDATE
+        SELECT quantity INTO v_current_quantity
+        FROM stock_balances
+        WHERE product_id = v_line.product_id AND location_id = v_line.from_location_id
+        FOR UPDATE;
+        
+        IF v_current_quantity IS NULL OR v_current_quantity < v_line.quantity THEN
+          RAISE EXCEPTION 'Saldo insuficiente na origem. Disponível: %, Solicitado: %',
+            COALESCE(v_current_quantity, 0), v_line.quantity;
+        END IF;
+        
+        -- Debitar da origem
+        UPDATE stock_balances
+        SET quantity = quantity - v_line.quantity,
+            last_movement_at = NOW(),
+            updated_at = NOW()
+        WHERE product_id = v_line.product_id AND location_id = v_line.from_location_id;
+        
+        -- Creditar no destino
+        INSERT INTO stock_balances (product_id, location_id, quantity, last_movement_at)
+        VALUES (v_line.product_id, v_line.to_location_id, v_line.quantity, NOW())
+        ON CONFLICT (product_id, location_id)
+        DO UPDATE SET
+          quantity = stock_balances.quantity + v_line.quantity,
+          last_movement_at = NOW(),
+          updated_at = NOW();
+          
+      WHEN 'adjustment' THEN
+        -- Ajuste positivo (encontrado)
+        IF v_line.to_location_id IS NOT NULL AND v_line.from_location_id IS NULL THEN
+          INSERT INTO stock_balances (product_id, location_id, quantity, last_movement_at)
+          VALUES (v_line.product_id, v_line.to_location_id, v_line.quantity, NOW())
+          ON CONFLICT (product_id, location_id)
+          DO UPDATE SET
+            quantity = stock_balances.quantity + v_line.quantity,
+            last_movement_at = NOW(),
+            updated_at = NOW();
+        -- Ajuste negativo (perda)
+        ELSIF v_line.from_location_id IS NOT NULL AND v_line.to_location_id IS NULL THEN
+          SELECT quantity INTO v_current_quantity
+          FROM stock_balances
+          WHERE product_id = v_line.product_id AND location_id = v_line.from_location_id
+          FOR UPDATE;
+          
+          IF v_current_quantity IS NULL OR v_current_quantity < v_line.quantity THEN
+            RAISE EXCEPTION 'Saldo insuficiente para ajuste. Disponível: %, Solicitado: %',
+              COALESCE(v_current_quantity, 0), v_line.quantity;
+          END IF;
+          
+          UPDATE stock_balances
+          SET quantity = quantity - v_line.quantity,
+              last_movement_at = NOW(),
+              updated_at = NOW()
+          WHERE product_id = v_line.product_id AND location_id = v_line.from_location_id;
+        ELSE
+          RAISE EXCEPTION 'Ajuste deve ter apenas origem OU destino, não ambos';
+        END IF;
+        
+      ELSE
+        RAISE EXCEPTION 'Tipo de movimentação inválido: %', v_movement_type;
+    END CASE;
+  END LOOP;
+  
+  -- Marcar como concluída
+  UPDATE movements
+  SET status = 'completed', completed_at = NOW()
+  WHERE id = p_movement_id;
+  
+  -- Registrar auditoria
+  PERFORM log_audit_event(
+    'movement_processed',
+    'movement',
+    p_movement_id,
+    jsonb_build_object('type', v_movement_type)
+  );
 END;
 $$;
 
 -- ========================================
--- FUNÇÃO: generate_receipt_number
--- Gera número único para recebimento
+-- FUNÇÃO: reserve_stock_for_shipment (ATÔMICA - NOVA)
+-- Reserva todas as linhas de uma expedição de uma vez
 -- ========================================
-CREATE OR REPLACE FUNCTION generate_receipt_number()
-RETURNS TEXT
+CREATE OR REPLACE FUNCTION reserve_stock_for_shipment(p_shipment_id UUID)
+RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  v_year TEXT;
-  v_sequence INTEGER;
-  v_number TEXT;
+  v_line RECORD;
+  v_available NUMERIC;
 BEGIN
-  v_year := EXTRACT(YEAR FROM NOW())::TEXT;
+  -- Validar usuário
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Usuário não autenticado';
+  END IF;
   
-  SELECT COALESCE(MAX(
-    CAST(SUBSTRING(receipt_number FROM 'RC-....-(\d+)') AS INTEGER)
-  ), 0) + 1
-  INTO v_sequence
-  FROM receipts
-  WHERE receipt_number LIKE 'RC-' || v_year || '-%';
+  -- Processar todas as linhas
+  FOR v_line IN
+    SELECT * FROM shipment_lines WHERE shipment_id = p_shipment_id
+    FOR UPDATE
+  LOOP
+    IF v_line.from_location_id IS NULL THEN
+      RAISE EXCEPTION 'Localização de origem não definida para produto %', v_line.product_id;
+    END IF;
+    
+    IF v_line.requested_quantity <= 0 THEN
+      RAISE EXCEPTION 'Quantidade solicitada deve ser positiva';
+    END IF;
+    
+    -- BLOQUEAR saldo com FOR UPDATE
+    SELECT available_quantity INTO v_available
+    FROM stock_balances
+    WHERE product_id = v_line.product_id AND location_id = v_line.from_location_id
+    FOR UPDATE;
+    
+    IF v_available IS NULL OR v_available < v_line.requested_quantity THEN
+      -- Rollback automático: nenhuma reserva será aplicada
+      RAISE EXCEPTION 'Estoque insuficiente para produto %. Disponível: %, Solicitado: %',
+        v_line.product_id, COALESCE(v_available, 0), v_line.requested_quantity;
+    END IF;
+  END LOOP;
   
-  v_number := 'RC-' || v_year || '-' || LPAD(v_sequence::TEXT, 4, '0');
+  -- Se chegou aqui, todas as linhas têm estoque suficiente
+  -- Aplicar todas as reservas
+  FOR v_line IN
+    SELECT * FROM shipment_lines WHERE shipment_id = p_shipment_id
+  LOOP
+    UPDATE stock_balances
+    SET reserved_quantity = reserved_quantity + v_line.requested_quantity,
+        updated_at = NOW()
+    WHERE product_id = v_line.product_id AND location_id = v_line.from_location_id;
+  END LOOP;
   
-  RETURN v_number;
+  -- Atualizar status da expedição
+  UPDATE shipments
+  SET status = 'picking'
+  WHERE id = p_shipment_id;
+  
+  -- Registrar auditoria
+  PERFORM log_audit_event(
+    'shipment_picking_started',
+    'shipment',
+    p_shipment_id
+  );
 END;
 $$;
 
 -- ========================================
--- FUNÇÃO: generate_shipment_number
--- Gera número único para expedição
+-- FUNÇÃO: release_shipment_reservations
 -- ========================================
-CREATE OR REPLACE FUNCTION generate_shipment_number()
-RETURNS TEXT
+CREATE OR REPLACE FUNCTION release_shipment_reservations(p_shipment_id UUID)
+RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  v_year TEXT;
-  v_sequence INTEGER;
-  v_number TEXT;
+  v_line RECORD;
 BEGIN
-  v_year := EXTRACT(YEAR FROM NOW())::TEXT;
-  
-  SELECT COALESCE(MAX(
-    CAST(SUBSTRING(shipment_number FROM 'SP-....-(\d+)') AS INTEGER)
-  ), 0) + 1
-  INTO v_sequence
-  FROM shipments
-  WHERE shipment_number LIKE 'SP-' || v_year || '-%';
-  
-  v_number := 'SP-' || v_year || '-' || LPAD(v_sequence::TEXT, 4, '0');
-  
-  RETURN v_number;
+  FOR v_line IN
+    SELECT * FROM shipment_lines WHERE shipment_id = p_shipment_id
+  LOOP
+    IF v_line.from_location_id IS NOT NULL AND v_line.requested_quantity > 0 THEN
+      UPDATE stock_balances
+      SET reserved_quantity = GREATEST(0, reserved_quantity - v_line.requested_quantity),
+          updated_at = NOW()
+      WHERE product_id = v_line.product_id AND location_id = v_line.from_location_id;
+    END IF;
+  END LOOP;
 END;
 $$;
 
 -- ========================================
--- FUNÇÃO: generate_count_number
--- Gera número único para contagem
+-- FUNÇÃO: confirm_shipment_picked (ATÔMICA)
 -- ========================================
-CREATE OR REPLACE FUNCTION generate_count_number()
-RETURNS TEXT
+CREATE OR REPLACE FUNCTION confirm_shipment_picked(p_shipment_id UUID)
+RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  v_year TEXT;
-  v_sequence INTEGER;
-  v_number TEXT;
+  v_line RECORD;
+  v_reserved NUMERIC;
 BEGIN
-  v_year := EXTRACT(YEAR FROM NOW())::TEXT;
+  -- Validar status
+  IF (SELECT status FROM shipments WHERE id = p_shipment_id FOR UPDATE) != 'picking' THEN
+    RAISE EXCEPTION 'Expedição não está em separação';
+  END IF;
   
-  SELECT COALESCE(MAX(
-    CAST(SUBSTRING(count_number FROM 'CNT-....-(\d+)') AS INTEGER)
-  ), 0) + 1
-  INTO v_sequence
-  FROM stock_counts
-  WHERE count_number LIKE 'CNT-' || v_year || '-%';
+  -- Confirmar cada linha
+  FOR v_line IN
+    SELECT * FROM shipment_lines WHERE shipment_id = p_shipment_id
+    FOR UPDATE
+  LOOP
+    IF v_line.from_location_id IS NULL THEN
+      RAISE EXCEPTION 'Localização de origem não definida';
+    END IF;
+    
+    IF v_line.picked_quantity <= 0 THEN
+      RAISE EXCEPTION 'Quantidade separada deve ser positiva';
+    END IF;
+    
+    -- Validar reserva
+    SELECT reserved_quantity INTO v_reserved
+    FROM stock_balances
+    WHERE product_id = v_line.product_id AND location_id = v_line.from_location_id
+    FOR UPDATE;
+    
+    IF v_reserved IS NULL OR v_reserved < v_line.picked_quantity THEN
+      RAISE EXCEPTION 'Reserva insuficiente para produto %. Reservado: %, Separado: %',
+        v_line.product_id, COALESCE(v_reserved, 0), v_line.picked_quantity;
+    END IF;
+    
+    -- Debitar quantidade física e liberar reserva
+    UPDATE stock_balances
+    SET
+      quantity = quantity - v_line.picked_quantity,
+      reserved_quantity = reserved_quantity - v_line.picked_quantity,
+      last_movement_at = NOW(),
+      updated_at = NOW()
+    WHERE product_id = v_line.product_id AND location_id = v_line.from_location_id;
+    
+    -- Criar movimentação de saída
+    INSERT INTO movements (reference, movement_type, status, operator_id, source_reference, completed_at)
+    VALUES (
+      generate_movement_reference('outbound'),
+      'outbound',
+      'completed',
+      auth.uid(),
+      (SELECT shipment_number FROM shipments WHERE id = p_shipment_id),
+      NOW()
+    )
+    RETURNING id INTO v_line.id; -- Reutiliza variável
+    
+    -- Nota: a criação da movement_line deve ser feita separadamente
+  END LOOP;
   
-  v_number := 'CNT-' || v_year || '-' || LPAD(v_sequence::TEXT, 4, '0');
+  -- Atualizar status da expedição
+  UPDATE shipments
+  SET status = 'packed'
+  WHERE id = p_shipment_id;
   
-  RETURN v_number;
+  PERFORM log_audit_event('shipment_picked', 'shipment', p_shipment_id);
 END;
 $$;
 
 -- ========================================
--- COMENTÁRIOS DAS FUNÇÕES
+-- FUNÇÃO: process_receipt_atomically (ATÔMICA - NOVA)
+-- Processa todo o recebimento de uma vez
 -- ========================================
+CREATE OR REPLACE FUNCTION process_receipt_atomically(p_receipt_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_line RECORD;
+  v_has_received_items BOOLEAN := false;
+  v_all_received BOOLEAN := true;
+BEGIN
+  -- Validar usuário
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Usuário não autenticado';
+  END IF;
+  
+  -- BLOQUEAR recebimento
+  PERFORM 1 FROM receipts WHERE id = p_receipt_id FOR UPDATE;
+  
+  -- Validar status
+  IF (SELECT status FROM receipts WHERE id = p_receipt_id) NOT IN ('pending', 'partial') THEN
+    RAISE EXCEPTION 'Recebimento já foi concluído ou cancelado';
+  END IF;
+  
+  -- Verificar se há itens recebidos e validar todos
+  FOR v_line IN
+    SELECT * FROM receipt_lines WHERE receipt_id = p_receipt_id FOR UPDATE
+  LOOP
+    IF v_line.received_quantity > 0 THEN
+      v_has_received_items := true;
+      
+      IF v_line.location_id IS NULL THEN
+        RAISE EXCEPTION 'Localização não definida para produto % com quantidade recebida', v_line.product_id;
+      END IF;
+    END IF;
+    
+    IF v_line.received_quantity < v_line.expected_quantity THEN
+      v_all_received := false;
+    END IF;
+  END LOOP;
+  
+  IF NOT v_has_received_items THEN
+    RAISE EXCEPTION 'Nenhum item foi recebido ainda';
+  END IF;
+  
+  -- Processar cada linha com quantidade recebida
+  FOR v_line IN
+    SELECT * FROM receipt_lines WHERE receipt_id = p_receipt_id AND received_quantity > 0
+  LOOP
+    -- Criar movimentação de entrada
+    INSERT INTO movements (reference, movement_type, status, operator_id, source_reference, completed_at)
+    VALUES (
+      generate_movement_reference('inbound'),
+      'inbound',
+      'completed',
+      auth.uid(),
+      (SELECT receipt_number FROM receipts WHERE id = p_receipt_id),
+      NOW()
+    )
+    RETURNING id INTO v_line.id;
+    
+    -- Adicionar linha da movimentação
+    INSERT INTO movement_lines (movement_id, product_id, to_location_id, quantity, unit)
+    VALUES (v_line.id, v_line.product_id, v_line.location_id, v_line.received_quantity, v_line.unit);
+    
+    -- Atualizar estoque
+    INSERT INTO stock_balances (product_id, location_id, quantity, last_movement_at)
+    VALUES (v_line.product_id, v_line.location_id, v_line.received_quantity, NOW())
+    ON CONFLICT (product_id, location_id)
+    DO UPDATE SET
+      quantity = stock_balances.quantity + v_line.received_quantity,
+      last_movement_at = NOW(),
+      updated_at = NOW();
+  END LOOP;
+  
+  -- Atualizar status do recebimento
+  UPDATE receipts
+  SET
+    status = CASE WHEN v_all_received THEN 'completed' ELSE 'partial' END,
+    actual_date = NOW(),
+    completed_at = CASE WHEN v_all_received THEN NOW() ELSE NULL END
+  WHERE id = p_receipt_id;
+  
+  PERFORM log_audit_event(
+    'receipt_processed',
+    'receipt',
+    p_receipt_id,
+    jsonb_build_object('all_received', v_all_received)
+  );
+END;
+$$;
 
-COMMENT ON FUNCTION process_stock_movement IS 'Processa movimentação de estoque de forma transacional';
-COMMENT ON FUNCTION get_product_total_stock IS 'Retorna estoque total de um produto';
-COMMENT ON FUNCTION get_product_stock_by_location IS 'Retorna estoque de um produto por endereço';
-COMMENT ON FUNCTION get_location_occupancy IS 'Retorna ocupação de um endereço';
-COMMENT ON FUNCTION reserve_stock IS 'Reserva estoque para expedição';
-COMMENT ON FUNCTION release_reservation IS 'Libera reserva de estoque';
-COMMENT ON FUNCTION confirm_picked_stock IS 'Confirma estoque separado (picking)';
-COMMENT ON FUNCTION find_product_by_barcode IS 'Busca produto por código de barras';
-COMMENT ON FUNCTION generate_movement_reference IS 'Gera referência única para movimentação';
-COMMENT ON FUNCTION generate_receipt_number IS 'Gera número único para recebimento';
-COMMENT ON FUNCTION generate_shipment_number IS 'Gera número único para expedição';
-COMMENT ON FUNCTION generate_count_number IS 'Gera número único para contagem';
+-- ========================================
+-- FUNÇÃO: process_stock_count_adjustments (ATÔMICA)
+-- ========================================
+CREATE OR REPLACE FUNCTION process_stock_count_adjustments(p_count_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_line RECORD;
+  v_difference NUMERIC;
+BEGIN
+  -- Validar usuário
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Usuário não autenticado';
+  END IF;
+  
+  -- BLOQUEAR contagem
+  PERFORM 1 FROM stock_counts WHERE id = p_count_id FOR UPDATE;
+  
+  -- Validar status
+  IF (SELECT status FROM stock_counts WHERE id = p_count_id) != 'in_progress' THEN
+    RAISE EXCEPTION 'Contagem não está em andamento';
+  END IF;
+  
+  -- Processar cada linha com divergência
+  FOR v_line IN
+    SELECT * FROM stock_count_lines WHERE stock_count_id = p_count_id
+  LOOP
+    v_difference := v_line.counted_quantity - v_line.system_quantity;
+    
+    IF v_difference != 0 THEN
+      -- Criar movimentação de ajuste
+      INSERT INTO movements (reference, movement_type, status, operator_id, source_reference, notes, completed_at)
+      VALUES (
+        generate_movement_reference('adjustment'),
+        'adjustment',
+        'completed',
+        auth.uid(),
+        (SELECT count_number FROM stock_counts WHERE id = p_count_id),
+        format('Ajuste de contagem: Sistema=%s, Contado=%s, Diferença=%s',
+          v_line.system_quantity, v_line.counted_quantity, v_difference),
+        NOW()
+      )
+      RETURNING id INTO v_line.id;
+      
+      -- Adicionar linha da movimentação
+      IF v_difference > 0 THEN
+        INSERT INTO movement_lines (movement_id, product_id, to_location_id, quantity, unit)
+        VALUES (v_line.id, v_line.product_id, v_line.location_id, v_difference, 'un');
+        
+        INSERT INTO stock_balances (product_id, location_id, quantity, last_movement_at)
+        VALUES (v_line.product_id, v_line.location_id, v_difference, NOW())
+        ON CONFLICT (product_id, location_id)
+        DO UPDATE SET
+          quantity = stock_balances.quantity + v_difference,
+          last_movement_at = NOW(),
+          updated_at = NOW();
+      ELSE
+        INSERT INTO movement_lines (movement_id, product_id, from_location_id, quantity, unit)
+        VALUES (v_line.id, v_line.product_id, v_line.location_id, ABS(v_difference), 'un');
+        
+        UPDATE stock_balances
+        SET quantity = quantity - ABS(v_difference),
+            last_movement_at = NOW(),
+            updated_at = NOW()
+        WHERE product_id = v_line.product_id AND location_id = v_line.location_id;
+      END IF;
+    END IF;
+  END LOOP;
+  
+  -- Atualizar status da contagem
+  UPDATE stock_counts
+  SET status = 'completed', completed_at = NOW()
+  WHERE id = p_count_id;
+  
+  PERFORM log_audit_event('stock_count_completed', 'stock_count', p_count_id);
+END;
+$$;
+
+-- ========================================
+-- FUNÇÃO: get_products_with_stock (OTIMIZADA - evita N+1)
+-- ========================================
+CREATE OR REPLACE FUNCTION get_products_with_stock()
+RETURNS TABLE (
+  id UUID,
+  sku TEXT,
+  name TEXT,
+  description TEXT,
+  category TEXT,
+  unit_base TEXT,
+  min_stock NUMERIC,
+  max_stock NUMERIC,
+  active BOOLEAN,
+  total_stock NUMERIC,
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    p.id,
+    p.sku,
+    p.name,
+    p.description,
+    p.category,
+    p.unit_base,
+    p.min_stock,
+    p.max_stock,
+    p.active,
+    COALESCE(SUM(sb.quantity), 0) AS total_stock,
+    p.created_at,
+    p.updated_at
+  FROM products p
+  LEFT JOIN stock_balances sb ON sb.product_id = p.id
+  WHERE p.active = true
+  GROUP BY p.id
+  ORDER BY p.sku;
+END;
+$$;
+
+-- ========================================
+-- RESTRINGIR EXECUÇÃO DAS FUNÇÕES CRÍTICAS
+-- ========================================
+REVOKE ALL ON FUNCTION process_stock_movement(UUID, UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION process_stock_movement(UUID, UUID) TO authenticated;
+
+REVOKE ALL ON FUNCTION reserve_stock_for_shipment(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION reserve_stock_for_shipment(UUID) TO authenticated;
+
+REVOKE ALL ON FUNCTION release_shipment_reservations(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION release_shipment_reservations(UUID) TO authenticated;
+
+REVOKE ALL ON FUNCTION confirm_shipment_picked(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION confirm_shipment_picked(UUID) TO authenticated;
+
+REVOKE ALL ON FUNCTION process_receipt_atomically(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION process_receipt_atomically(UUID) TO authenticated;
+
+REVOKE ALL ON FUNCTION process_stock_count_adjustments(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION process_stock_count_adjustments(UUID) TO authenticated;
+
+REVOKE ALL ON FUNCTION log_audit_event(TEXT, TEXT, UUID, JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION log_audit_event(TEXT, TEXT, UUID, JSONB) TO authenticated;

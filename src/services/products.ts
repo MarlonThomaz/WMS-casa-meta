@@ -1,61 +1,38 @@
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { DBProduct, DBProductBarcode, ProductWithStock } from '../types';
 
-export type Product = {
-  id: string;
-  sku: string;
-  name: string;
-  description?: string;
-  category?: string;
-  unit_base: string;
-  min_stock: number;
-  max_stock?: number;
-  active: boolean;
-  created_at: string;
-  updated_at: string;
-};
-
-export type ProductBarcode = {
-  id: string;
-  product_id: string;
-  barcode: string;
-  barcode_type?: string;
-  packaging_type: string;
-  quantity_per_package: number;
-  is_primary: boolean;
-  created_at: string;
-};
-
-export type ProductWithStock = Product & {
-  total_stock: number;
-  barcodes?: ProductBarcode[];
-};
-
-// Buscar todos os produtos ativos
-export async function getProducts(): Promise<Product[]> {
+// Buscar produtos com estoque total (USANDO FUNÇÃO SQL OTIMIZADA - evita N+1)
+export async function getProductsWithStock(): Promise<ProductWithStock[]> {
+  if (!isSupabaseConfigured) return [];
+  
   const { data, error } = await supabase
-    .from('products')
-    .select('*')
-    .eq('active', true)
-    .order('sku');
+    .rpc('get_products_with_stock');
 
   if (error) throw error;
-  return data || [];
+  return (data || []) as ProductWithStock[];
 }
 
 // Buscar produto por ID
-export async function getProductById(id: string): Promise<Product | null> {
+export async function getProductById(id: string): Promise<DBProduct | null> {
+  if (!isSupabaseConfigured) return null;
+  
   const { data, error } = await supabase
     .from('products')
     .select('*')
     .eq('id', id)
     .single();
 
-  if (error) throw error;
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
   return data;
 }
 
 // Buscar produto por SKU
-export async function getProductBySku(sku: string): Promise<Product | null> {
+export async function getProductBySku(sku: string): Promise<DBProduct | null> {
+  if (!isSupabaseConfigured) return null;
+  
   const { data, error } = await supabase
     .from('products')
     .select('*')
@@ -63,69 +40,16 @@ export async function getProductBySku(sku: string): Promise<Product | null> {
     .single();
 
   if (error) {
-    if (error.code === 'PGRST116') return null; // Not found
+    if (error.code === 'PGRST116') return null;
     throw error;
   }
   return data;
 }
 
-// Buscar produto por código de barras
-export async function getProductByBarcode(barcode: string): Promise<ProductWithStock | null> {
-  const { data, error } = await supabase
-    .rpc('find_product_by_barcode', { p_barcode: barcode });
-
-  if (error) throw error;
-  if (!data || data.length === 0) return null;
-
-  const result = data[0];
-  
-  // Buscar estoque total
-  const { data: stockData } = await supabase
-    .rpc('get_product_total_stock', { p_product_id: result.product_id });
-
-  return {
-    id: result.product_id,
-    sku: result.sku,
-    name: result.name,
-    unit_base: 'un', // Default
-    min_stock: 0,
-    active: true,
-    created_at: '',
-    updated_at: '',
-    total_stock: stockData || 0,
-  };
-}
-
-// Buscar produtos com estoque total
-export async function getProductsWithStock(): Promise<ProductWithStock[]> {
-  const products = await getProducts();
-  
-  const productsWithStock = await Promise.all(
-    products.map(async (product) => {
-      const { data: stockData } = await supabase
-        .rpc('get_product_total_stock', { p_product_id: product.id });
-
-      return {
-        ...product,
-        total_stock: stockData || 0,
-      };
-    })
-  );
-
-  return productsWithStock;
-}
-
-// Buscar estoque de um produto por localização
-export async function getProductStockByLocation(productId: string) {
-  const { data, error } = await supabase
-    .rpc('get_product_stock_by_location', { p_product_id: productId });
-
-  if (error) throw error;
-  return data || [];
-}
-
 // Criar novo produto
-export async function createProduct(product: Omit<Product, 'id' | 'created_at' | 'updated_at'>): Promise<Product> {
+export async function createProduct(product: Omit<DBProduct, 'id' | 'created_at' | 'updated_at'>): Promise<DBProduct> {
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+  
   const { data, error } = await supabase
     .from('products')
     .insert([product])
@@ -137,7 +61,9 @@ export async function createProduct(product: Omit<Product, 'id' | 'created_at' |
 }
 
 // Atualizar produto
-export async function updateProduct(id: string, updates: Partial<Product>): Promise<Product> {
+export async function updateProduct(id: string, updates: Partial<DBProduct>): Promise<DBProduct> {
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+  
   const { data, error } = await supabase
     .from('products')
     .update({ ...updates, updated_at: new Date().toISOString() })
@@ -151,6 +77,8 @@ export async function updateProduct(id: string, updates: Partial<Product>): Prom
 
 // Desativar produto (soft delete)
 export async function deactivateProduct(id: string): Promise<void> {
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+  
   const { error } = await supabase
     .from('products')
     .update({ active: false, updated_at: new Date().toISOString() })
@@ -159,8 +87,23 @@ export async function deactivateProduct(id: string): Promise<void> {
   if (error) throw error;
 }
 
+// Buscar produto por código de barras
+export async function findProductByBarcode(barcode: string) {
+  if (!isSupabaseConfigured) return null;
+  
+  const { data, error } = await supabase
+    .rpc('find_product_by_barcode', { p_barcode: barcode });
+
+  if (error) throw error;
+  if (!data || data.length === 0) return null;
+
+  return data[0];
+}
+
 // Criar código de barras para produto
-export async function createProductBarcode(barcode: Omit<ProductBarcode, 'id' | 'created_at'>): Promise<ProductBarcode> {
+export async function createProductBarcode(barcode: Omit<DBProductBarcode, 'id' | 'created_at'>): Promise<DBProductBarcode> {
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+  
   const { data, error } = await supabase
     .from('product_barcodes')
     .insert([barcode])
@@ -172,7 +115,9 @@ export async function createProductBarcode(barcode: Omit<ProductBarcode, 'id' | 
 }
 
 // Buscar códigos de barras de um produto
-export async function getProductBarcodes(productId: string): Promise<ProductBarcode[]> {
+export async function getProductBarcodes(productId: string): Promise<DBProductBarcode[]> {
+  if (!isSupabaseConfigured) return [];
+  
   const { data, error } = await supabase
     .from('product_barcodes')
     .select('*')
@@ -181,23 +126,4 @@ export async function getProductBarcodes(productId: string): Promise<ProductBarc
 
   if (error) throw error;
   return data || [];
-}
-
-// Buscar produto por código de barras (detalhado)
-export async function findProductByBarcodeDetailed(barcode: string) {
-  const { data, error } = await supabase
-    .from('product_barcodes')
-    .select(`
-      *,
-      products (*)
-    `)
-    .eq('barcode', barcode)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') return null;
-    throw error;
-  }
-
-  return data;
 }
