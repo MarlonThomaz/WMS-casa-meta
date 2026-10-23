@@ -4,6 +4,24 @@ import type { DBShipment, DBShipmentLine, ShipmentWithLines } from '../types';
 export type Shipment = DBShipment;
 export type { ShipmentWithLines };
 
+export type CreateShipmentLineInput = {
+  product_id: string;
+  requested_quantity: number;
+  from_location_id: string;
+  unit?: string;
+  notes?: string;
+};
+
+export type CreateShipmentInput = {
+  customer_name: string;
+  customer_reference?: string;
+  carrier?: string;
+  priority?: DBShipment['priority'];
+  expected_date?: string;
+  notes?: string;
+  lines: CreateShipmentLineInput[];
+};
+
 export async function getShipments(limit = 100): Promise<DBShipment[]> {
   if (!isSupabaseConfigured) return [];
 
@@ -77,6 +95,38 @@ export async function getShipmentById(id: string): Promise<ShipmentWithLines | n
   return { ...shipment, lines: lines || [] };
 }
 
+/**
+ * Cria cabeçalho e linhas da expedição em uma única transação.
+ */
+export async function createShipmentWithLines(
+  input: CreateShipmentInput
+): Promise<DBShipment> {
+  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+  if (!input.customer_name.trim()) throw new Error('Cliente é obrigatório');
+  if (input.lines.length === 0) throw new Error('Adicione ao menos um item');
+
+  const { data: shipmentId, error } = await supabase.rpc('create_shipment_with_lines', {
+    p_customer_name: input.customer_name,
+    p_customer_reference: input.customer_reference || null,
+    p_carrier: input.carrier || null,
+    p_priority: input.priority || 'medium',
+    p_expected_date: input.expected_date || null,
+    p_notes: input.notes || null,
+    p_lines: input.lines,
+  });
+
+  if (error) throw error;
+  if (!shipmentId) throw new Error('Banco não retornou o ID da expedição');
+
+  const shipment = await getShipmentById(shipmentId as string);
+  if (!shipment) throw new Error('Expedição criada, mas não pôde ser recarregada');
+
+  return shipment;
+}
+
+/**
+ * Mantido para edição incremental. created_by é imposto pelo banco.
+ */
 export async function createShipment(shipment: {
   customer_name: string;
   customer_reference?: string;
@@ -102,7 +152,6 @@ export async function createShipment(shipment: {
         shipment_number: shipmentNumber,
         priority: shipment.priority || 'medium',
         status: 'pending',
-        created_by: shipment.operator_id,
       },
     ])
     .select()
