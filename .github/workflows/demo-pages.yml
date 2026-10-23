@@ -1,9 +1,8 @@
 name: Demo Pages
 
+# O build da demo já é validado pela CI principal. O deploy fica manual
+# enquanto GitHub Pages não estiver habilitado em Settings > Pages.
 on:
-  push:
-    branches:
-      - wms-stabilization-round8
   workflow_dispatch:
 
 permissions:
