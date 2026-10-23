@@ -12,7 +12,6 @@ interface AuthContextType {
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, fullName: string) => Promise<void>;
   signOut: () => Promise<void>;
   isDemo: boolean;
 }
@@ -140,27 +139,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw error;
   }
 
-  async function signUp(email: string, password: string, fullName: string) {
-    if (isDemoMode) {
-      setUser({ ...DEMO_USER, email, full_name: fullName });
-      return;
-    }
-
-    if (!isSupabaseConfigured) {
-      throw new Error(
-        'Supabase não configurado. Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.'
-      );
-    }
-
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: fullName } },
-    });
-
-    if (error) throw error;
-  }
-
   async function signOut() {
     if (isDemoMode) {
       setUser(null);
@@ -188,7 +166,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         loading,
         signIn,
-        signUp,
         signOut,
         isDemo: isDemoMode,
       }}
