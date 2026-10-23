@@ -31,6 +31,8 @@ https://stackblitz.com/github/MarlonThomaz/WMS-casa-meta/tree/wms-stabilization-
 
 A demo é identificada por uma faixa amarela no topo. Alterações feitas nela são temporárias e voltam ao estado inicial ao recarregar a página.
 
+A última validação da branch após a implementação do modo demo passou TypeScript, build de produção, migrations e regressões transacionais/RLS na CI.
+
 Há também um workflow `Demo Pages`, preparado para publicar a mesma demo em GitHub Pages. Ele fica manual até Pages ser habilitado em **Settings > Pages > Build and deployment > GitHub Actions**.
 
 ## Stack
