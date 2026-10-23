@@ -33,31 +33,23 @@ export type StockCountWithLines = StockCount & {
 export async function createStockCount(params: {
   count_type: StockCount['count_type'];
   location_id?: string;
-  operator_id?: string;
   notes?: string;
 }): Promise<StockCount> {
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
 
-  const { data: countNumber, error: refError } = await supabase.rpc('generate_count_number');
-  if (refError) throw new Error(`Erro ao gerar número: ${refError.message}`);
-
-  const { data, error } = await supabase
-    .from('stock_counts')
-    .insert([
-      {
-        count_type: params.count_type,
-        location_id: params.location_id,
-        operator_id: params.operator_id,
-        notes: params.notes,
-        count_number: countNumber as string,
-        status: 'pending',
-      },
-    ])
-    .select()
-    .single();
+  const { data: countId, error } = await supabase.rpc('create_stock_count_with_snapshot', {
+    p_count_type: params.count_type,
+    p_location_id: params.location_id || null,
+    p_notes: params.notes || null,
+  });
 
   if (error) throw new Error(`Erro ao criar contagem: ${error.message}`);
-  return data as StockCount;
+  if (!countId) throw new Error('Banco não retornou o ID da contagem');
+
+  const count = await getStockCountById(countId as string);
+  if (!count) throw new Error('Contagem criada, mas não pôde ser recarregada');
+
+  return count;
 }
 
 export async function addStockCountLine(line: {
@@ -179,7 +171,8 @@ export async function getStockCountById(id: string): Promise<StockCountWithLines
   const { data: lines, error: linesError } = await supabase
     .from('stock_count_lines')
     .select('*')
-    .eq('stock_count_id', id);
+    .eq('stock_count_id', id)
+    .order('created_at');
 
   if (linesError) throw new Error(`Erro ao buscar linhas: ${linesError.message}`);
 
@@ -248,7 +241,8 @@ export async function getStockCountLinesWithDetails(countId: string) {
       products (id, sku, name, category),
       locations (id, code, zone)
     `)
-    .eq('stock_count_id', countId);
+    .eq('stock_count_id', countId)
+    .order('created_at');
 
   if (error) throw new Error(`Erro ao buscar linhas: ${error.message}`);
   return data || [];
