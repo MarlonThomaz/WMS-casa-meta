@@ -25,19 +25,25 @@ jobs:
 
       - name: TypeScript
         id: typecheck
-        continue-on-error: true
         shell: bash
         run: |
+          set +e
           set -o pipefail
           npm run typecheck 2>&1 | tee ci-typecheck.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
 
       - name: Production build
         id: build
-        continue-on-error: true
         shell: bash
         run: |
+          set +e
           set -o pipefail
           npm run build 2>&1 | tee ci-build.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
 
       - name: Upload web diagnostics
         if: always()
@@ -54,9 +60,9 @@ jobs:
         if: always()
         shell: bash
         run: |
-          if [ "${{ steps.typecheck.outcome }}" != "success" ] || [ "${{ steps.build.outcome }}" != "success" ]; then
-            echo "TypeScript outcome: ${{ steps.typecheck.outcome }}"
-            echo "Build outcome: ${{ steps.build.outcome }}"
+          echo "TypeScript exit: ${{ steps.typecheck.outputs.exit_code }}"
+          echo "Build exit: ${{ steps.build.outputs.exit_code }}"
+          if [ "${{ steps.typecheck.outputs.exit_code }}" != "0" ] || [ "${{ steps.build.outputs.exit_code }}" != "0" ]; then
             exit 1
           fi
 
@@ -191,6 +197,9 @@ jobs:
             END IF;
             IF to_regprocedure('public.create_shipment_with_lines(text,text,text,text,date,text,jsonb)') IS NULL THEN
               RAISE EXCEPTION 'create_shipment_with_lines missing';
+            END IF;
+            IF to_regprocedure('public.create_and_process_movement(text,text,text,jsonb)') IS NULL THEN
+              RAISE EXCEPTION 'create_and_process_movement missing';
             END IF;
           END $$;
           SQL
