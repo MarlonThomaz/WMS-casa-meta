@@ -103,6 +103,7 @@ export type DBReceiptLine = {
   product_id: string;
   expected_quantity: number;
   received_quantity: number;
+  processed_quantity: number;
   location_id?: string;
   unit: string;
   notes?: string;
@@ -136,6 +137,7 @@ export type DBShipmentLine = {
   from_location_id?: string;
   unit: string;
   notes?: string;
+  reservations_released: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -157,14 +159,14 @@ export type DBAuditEvent = {
   entity_id?: string;
   user_id?: string;
   user_email?: string;
-  details?: any;
+  details?: unknown;
   ip_address?: string;
   user_agent?: string;
   created_at: string;
 };
 
 // ========================================
-// TIPOS DA INTERFACE (UI) - derivados
+// TIPOS DA INTERFACE (derivados do banco)
 // ========================================
 
 export type Page =
@@ -179,32 +181,24 @@ export type Page =
   | 'pilot-dashboard'
   | 'help';
 
-// Tipo para exibição na UI - combina produto com estoque total
 export type ProductWithStock = DBProduct & {
   total_stock: number;
 };
 
-// Tipo para exibição de localização com ocupação
 export type LocationWithOccupancy = DBLocation & {
   total_items: number;
   total_quantity: number;
   occupancy_percentage: number;
 };
 
-// Tipo para exibição de movimentação com detalhes
 export type MovementWithDetails = DBMovement & {
   lines: DBMovementLine[];
-  product_name?: string;
-  from_location_code?: string;
-  to_location_code?: string;
 };
 
-// Tipo para exibição de recebimento com linhas
 export type ReceiptWithLines = DBReceipt & {
   lines: DBReceiptLine[];
 };
 
-// Tipo para exibição de expedição com linhas
 export type ShipmentWithLines = DBShipment & {
   lines: DBShipmentLine[];
 };

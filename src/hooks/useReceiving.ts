@@ -1,5 +1,15 @@
-import { useState, useEffect } from 'react';
-import { Receipt, ReceiptWithLines, getReceipts, getReceiptById, getReceiptsByStatus, createReceipt, addReceiptLine, updateReceivedQuantity, confirmReceipt, cancelReceipt } from '../services/receiving';
+import { useEffect, useState } from 'react';
+import {
+  Receipt,
+  ReceiptWithLines,
+  getReceipts,
+  getReceiptById,
+  getReceiptsByStatus,
+  createReceiptWithLines,
+  updateReceivedQuantity,
+  confirmReceipt,
+  cancelReceipt,
+} from '../services/receiving';
 
 export function useReceipts(filters?: {
   status?: Receipt['status'];
@@ -13,15 +23,11 @@ export function useReceipts(filters?: {
     try {
       setLoading(true);
       setError(null);
-      
-      let data: Receipt[];
-      
-      if (filters?.status) {
-        data = await getReceiptsByStatus(filters.status);
-      } else {
-        data = await getReceipts(filters?.limit || 100);
-      }
-      
+
+      const data = filters?.status
+        ? await getReceiptsByStatus(filters.status, filters.limit || 100)
+        : await getReceipts(filters?.limit || 100);
+
       setReceipts(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar recebimentos');
@@ -32,18 +38,14 @@ export function useReceipts(filters?: {
   };
 
   useEffect(() => {
-    loadReceipts();
+    void loadReceipts();
   }, [filters?.status, filters?.limit]);
-
-  const refresh = async () => {
-    await loadReceipts();
-  };
 
   return {
     receipts,
     loading,
     error,
-    refresh,
+    refresh: loadReceipts,
   };
 }
 
@@ -61,8 +63,7 @@ export function useReceipt(id: string | null) {
     try {
       setLoading(true);
       setError(null);
-      const data = await getReceiptById(id);
-      setReceipt(data);
+      setReceipt(await getReceiptById(id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar recebimento');
       console.error('Erro ao carregar recebimento:', err);
@@ -72,14 +73,10 @@ export function useReceipt(id: string | null) {
   };
 
   useEffect(() => {
-    loadReceipt();
+    void loadReceipt();
   }, [id]);
 
-  const refresh = async () => {
-    await loadReceipt();
-  };
-
-  return { receipt, loading, error, refresh };
+  return { receipt, loading, error, refresh: loadReceipt };
 }
 
 export function useCreateReceipt() {
@@ -91,7 +88,6 @@ export function useCreateReceipt() {
     supplier_reference?: string;
     expected_date?: string;
     dock?: string;
-    operator_id?: string;
     notes?: string;
     lines: Array<{
       product_id: string;
@@ -104,30 +100,7 @@ export function useCreateReceipt() {
     try {
       setLoading(true);
       setError(null);
-      
-      // Criar recebimento
-      const receipt = await createReceipt({
-        supplier_name: params.supplier_name,
-        supplier_reference: params.supplier_reference,
-        expected_date: params.expected_date,
-        dock: params.dock,
-        operator_id: params.operator_id,
-        notes: params.notes,
-      });
-
-      // Adicionar linhas
-      for (const line of params.lines) {
-        await addReceiptLine({
-          receipt_id: receipt.id,
-          product_id: line.product_id,
-          expected_quantity: line.expected_quantity,
-          location_id: line.location_id,
-          unit: line.unit,
-          notes: line.notes,
-        });
-      }
-
-      return receipt;
+      return await createReceiptWithLines(params);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao criar recebimento';
       setError(errorMessage);
@@ -137,11 +110,7 @@ export function useCreateReceipt() {
     }
   };
 
-  return {
-    createNewReceipt,
-    loading,
-    error,
-  };
+  return { createNewReceipt, loading, error };
 }
 
 export function useConfirmReceipt() {
@@ -162,11 +131,7 @@ export function useConfirmReceipt() {
     }
   };
 
-  return {
-    confirm,
-    loading,
-    error,
-  };
+  return { confirm, loading, error };
 }
 
 export function useCancelReceipt() {
@@ -187,11 +152,7 @@ export function useCancelReceipt() {
     }
   };
 
-  return {
-    cancel,
-    loading,
-    error,
-  };
+  return { cancel, loading, error };
 }
 
 export function useUpdateReceivedQuantity() {
@@ -212,9 +173,5 @@ export function useUpdateReceivedQuantity() {
     }
   };
 
-  return {
-    update,
-    loading,
-    error,
-  };
+  return { update, loading, error };
 }

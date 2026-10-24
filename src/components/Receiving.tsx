@@ -1,334 +1,445 @@
-import { useState, useEffect } from 'react';
-import { useReceipts, useCreateReceipt, useConfirmReceipt, useCancelReceipt, useUpdateReceivedQuantity } from '../hooks/useReceiving';
-import { useAuth } from '../contexts/AuthContext';
-import { Plus, CheckCircle, XCircle, Clock, AlertCircle, Package } from 'lucide-react';
-import { receivingOrders as demoReceipts } from '../data';
-import { ReceivingOrder } from '../types';
+import { FormEvent, useMemo, useState } from 'react';
+import {
+  AlertCircle,
+  CheckCircle,
+  ChevronLeft,
+  Clock,
+  Package,
+  Plus,
+  Trash2,
+  XCircle,
+} from 'lucide-react';
+import {
+  useCancelReceipt,
+  useConfirmReceipt,
+  useCreateReceipt,
+  useReceipt,
+  useReceipts,
+  useUpdateReceivedQuantity,
+} from '../hooks/useReceiving';
+import { useProducts } from '../hooks/useProducts';
+import { useLocations } from '../hooks/useLocations';
+import type { DBReceipt } from '../types';
+
+const statusLabel: Record<DBReceipt['status'], string> = {
+  pending: 'Pendente',
+  partial: 'Parcial',
+  completed: 'Concluído',
+  cancelled: 'Cancelado',
+};
+
+const statusClass: Record<DBReceipt['status'], string> = {
+  pending: 'bg-amber-100 text-amber-700',
+  partial: 'bg-blue-100 text-blue-700',
+  completed: 'bg-green-100 text-green-700',
+  cancelled: 'bg-red-100 text-red-700',
+};
+
+type DraftLine = {
+  product_id: string;
+  expected_quantity: number;
+  location_id: string;
+};
 
 export default function Receiving() {
-  const { user } = useAuth();
-  const { receipts: supabaseReceipts, loading: supabaseLoading, error: supabaseError, refresh } = useReceipts();
-  const { createNewReceipt, loading: creating } = useCreateReceipt();
-  const { confirm, loading: confirming } = useConfirmReceipt();
-  const { cancel, loading: cancelling } = useCancelReceipt();
-  const { update, loading: updating } = useUpdateReceivedQuantity();
-  
-  // Usar dados do Supabase se disponíveis, senão usar dados de demonstração
-  const [receipts, setReceipts] = useState<ReceivingOrder[]>(demoReceipts);
-  const [usingSupabase, setUsingSupabase] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<'all' | ReceivingOrder['status']>('all');
-  const [showModal, setShowModal] = useState(false);
+  const { receipts, loading, error, refresh } = useReceipts();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [filter, setFilter] = useState<'all' | DBReceipt['status']>('all');
 
-  // Tentar carregar do Supabase
-  useEffect(() => {
-    if (!supabaseLoading && supabaseReceipts.length > 0 && !usingSupabase) {
-      setReceipts(supabaseReceipts as unknown as ReceivingOrder[]);
-      setUsingSupabase(true);
-    }
-  }, [supabaseLoading, supabaseReceipts]);
+  if (selectedId) {
+    return (
+      <ReceiptDetail
+        receiptId={selectedId}
+        onBack={() => {
+          setSelectedId(null);
+          void refresh();
+        }}
+      />
+    );
+  }
 
-  const filteredReceipts = receipts.filter(r => 
-    statusFilter === 'all' || r.status === statusFilter
-  );
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'pending': return <Clock className="w-4 h-4" />;
-      case 'partial': return <AlertCircle className="w-4 h-4" />;
-      case 'completed': return <CheckCircle className="w-4 h-4" />;
-      case 'cancelled': return <XCircle className="w-4 h-4" />;
-      default: return null;
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending': return 'bg-amber-100 text-amber-700';
-      case 'partial': return 'bg-blue-100 text-blue-700';
-      case 'completed': return 'bg-green-100 text-green-700';
-      case 'cancelled': return 'bg-red-100 text-red-700';
-      default: return 'bg-slate-100 text-slate-700';
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'pending': return 'Pendente';
-      case 'partial': return 'Parcial';
-      case 'completed': return 'Concluído';
-      case 'cancelled': return 'Cancelado';
-      default: return status;
-    }
-  };
-
-  const handleComplete = async (orderId: string) => {
-    try {
-      if (usingSupabase) {
-        await confirm(orderId);
-        await refresh();
-      } else {
-        setReceipts(receipts.map(o => 
-          o.id === orderId 
-            ? { ...o, status: 'completed' as const, items: o.items.map((i: any) => ({ ...i, received: i.expected })) }
-            : o
-        ));
-      }
-    } catch (error) {
-      alert('Erro ao confirmar recebimento: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
-    }
-  };
-
-  const handleCancel = async (orderId: string) => {
-    if (!confirm('Tem certeza que deseja cancelar esta ordem de recebimento?')) return;
-    
-    try {
-      if (usingSupabase) {
-        await cancel(orderId);
-        await refresh();
-      } else {
-        setReceipts(receipts.map(o => 
-          o.id === orderId ? { ...o, status: 'cancelled' as const } : o
-        ));
-      }
-    } catch (error) {
-      alert('Erro ao cancelar recebimento: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
-    }
-  };
-
-  const summary = {
-    pending: receipts.filter(o => o.status === 'pending').length,
-    partial: receipts.filter(o => o.status === 'partial').length,
-    completed: receipts.filter(o => o.status === 'completed').length,
-    cancelled: receipts.filter(o => o.status === 'cancelled').length,
+  const filtered = receipts.filter((receipt) => filter === 'all' || receipt.status === filter);
+  const counts = {
+    pending: receipts.filter((r) => r.status === 'pending').length,
+    partial: receipts.filter((r) => r.status === 'partial').length,
+    completed: receipts.filter((r) => r.status === 'completed').length,
+    cancelled: receipts.filter((r) => r.status === 'cancelled').length,
   };
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Recebimento</h1>
-          <p className="text-slate-500">
-            Ordens de recebimento e conferência
-            {usingSupabase && (
-              <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                Conectado ao Supabase
-              </span>
-            )}
-            {!usingSupabase && !supabaseLoading && (
-              <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
-                Modo demonstração
-              </span>
-            )}
-          </p>
+          <p className="text-slate-500">Ordens reais de recebimento e conferência.</p>
         </div>
         <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+          type="button"
+          onClick={() => setShowCreate(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
         >
           <Plus className="w-4 h-4" />
-          Nova Ordem
+          Nova ordem
         </button>
       </div>
 
-      {/* Error message */}
-      {supabaseError && (
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
-          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-amber-800">Usando dados de demonstração</p>
-            <p className="text-xs text-amber-700 mt-1">
-              Não foi possível conectar ao Supabase: {supabaseError}. Configure o arquivo .env e execute as migrations.
-            </p>
-          </div>
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex gap-2">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          {error}
         </div>
       )}
 
-      {/* Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-2 mb-1">
-            <Clock className="w-4 h-4 text-amber-500" />
-            <span className="text-sm text-slate-500">Pendentes</span>
-          </div>
-          <p className="text-2xl font-bold text-amber-600">{summary.pending}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-2 mb-1">
-            <AlertCircle className="w-4 h-4 text-blue-500" />
-            <span className="text-sm text-slate-500">Parciais</span>
-          </div>
-          <p className="text-2xl font-bold text-blue-600">{summary.partial}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-2 mb-1">
-            <CheckCircle className="w-4 h-4 text-green-500" />
-            <span className="text-sm text-slate-500">Concluídos</span>
-          </div>
-          <p className="text-2xl font-bold text-green-600">{summary.completed}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-2 mb-1">
-            <XCircle className="w-4 h-4 text-red-500" />
-            <span className="text-sm text-slate-500">Cancelados</span>
-          </div>
-          <p className="text-2xl font-bold text-red-600">{summary.cancelled}</p>
-        </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Summary label="Pendentes" value={counts.pending} icon={<Clock className="w-4 h-4" />} />
+        <Summary label="Parciais" value={counts.partial} icon={<AlertCircle className="w-4 h-4" />} />
+        <Summary label="Concluídos" value={counts.completed} icon={<CheckCircle className="w-4 h-4" />} />
+        <Summary label="Cancelados" value={counts.cancelled} icon={<XCircle className="w-4 h-4" />} />
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-2">
-        {(['all', 'pending', 'partial', 'completed', 'cancelled'] as const).map(status => (
+      <div className="flex flex-wrap gap-2">
+        {(['all', 'pending', 'partial', 'completed', 'cancelled'] as const).map((status) => (
           <button
+            type="button"
             key={status}
-            onClick={() => setStatusFilter(status)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              statusFilter === status
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            onClick={() => setFilter(status)}
+            className={`px-3 py-2 rounded-lg text-sm border ${
+              filter === status
+                ? 'bg-blue-600 border-blue-600 text-white'
+                : 'bg-white border-slate-200 text-slate-600'
             }`}
           >
-            {status === 'all' ? 'Todos' : getStatusLabel(status)}
+            {status === 'all' ? 'Todos' : statusLabel[status]}
           </button>
         ))}
       </div>
 
-      {/* Orders List */}
-      <div className="space-y-4">
-        {filteredReceipts.map(order => (
-          <div key={order.id} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <Package className="w-5 h-5 text-blue-600" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-slate-800">{order.orderNumber}</h3>
-                  <p className="text-sm text-slate-500">{order.supplier} • {order.date}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className={`inline-flex items-center gap-1 text-xs px-3 py-1 rounded-full ${getStatusColor(order.status)}`}>
-                  {getStatusIcon(order.status)}
-                  {getStatusLabel(order.status)}
-                </span>
-                <span className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded">{order.dock}</span>
-              </div>
-            </div>
-            <div className="p-4">
-              <table className="w-full">
-                <thead>
-                  <tr className="text-xs text-slate-500 uppercase">
-                    <th className="text-left pb-2">Produto</th>
-                    <th className="text-center pb-2">Esperado</th>
-                    <th className="text-center pb-2">Recebido</th>
-                    <th className="text-center pb-2">Progresso</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {order.items.map((item, idx) => {
-                    const progress = item.expected > 0 ? (item.received / item.expected) * 100 : 0;
-                    return (
-                      <tr key={idx} className="border-t border-slate-50">
-                        <td className="py-2 text-sm text-slate-700">{item.productName}</td>
-                        <td className="py-2 text-center text-sm text-slate-600">{item.expected}</td>
-                        <td className="py-2 text-center text-sm font-medium text-slate-700">{item.received}</td>
-                        <td className="py-2">
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full ${
-                                  progress >= 100 ? 'bg-green-500' : progress > 0 ? 'bg-blue-500' : 'bg-slate-200'
-                                }`}
-                                style={{ width: `${progress}%` }}
-                              ></div>
-                            </div>
-                            <span className="text-xs text-slate-500 w-10">{Math.round(progress)}%</span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {(order.status === 'pending' || order.status === 'partial') && (
-              <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-                <button
-                  onClick={() => handleCancel(order.id)}
-                  disabled={cancelling}
-                  className="px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={() => handleComplete(order.id)}
-                  disabled={confirming}
-                  className="px-3 py-1.5 text-sm text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
-                >
-                  Concluir Recebimento
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="text-left px-4 py-3">Número</th>
+                <th className="text-left px-4 py-3">Fornecedor</th>
+                <th className="text-left px-4 py-3">Previsto</th>
+                <th className="text-left px-4 py-3">Doca</th>
+                <th className="text-left px-4 py-3">Status</th>
+                <th className="text-right px-4 py-3">Ação</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.map((receipt) => (
+                <tr key={receipt.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-mono text-sm">{receipt.receipt_number}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-slate-800">{receipt.supplier_name}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{receipt.expected_date || '—'}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{receipt.dock || '—'}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex px-2 py-1 rounded-full text-xs ${statusClass[receipt.status]}`}>
+                      {statusLabel[receipt.status]}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(receipt.id)}
+                      className="text-sm font-medium text-blue-600 hover:text-blue-800"
+                    >
+                      Conferir
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && filtered.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
+                    Nenhum recebimento encontrado.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {loading && <div className="p-6 text-center text-slate-500">Carregando recebimentos...</div>}
       </div>
 
-      {filteredReceipts.length === 0 && !supabaseLoading && (
-        <div className="bg-white rounded-xl p-8 text-center text-slate-400 shadow-sm border border-slate-100">
-          Nenhuma ordem de recebimento encontrada.
+      {showCreate && (
+        <CreateReceiptModal
+          onClose={() => setShowCreate(false)}
+          onCreated={async (id) => {
+            setShowCreate(false);
+            await refresh();
+            setSelectedId(id);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ReceiptDetail({ receiptId, onBack }: { receiptId: string; onBack: () => void }) {
+  const { receipt, loading, error, refresh } = useReceipt(receiptId);
+  const { products } = useProducts();
+  const { locations } = useLocations();
+  const { update, loading: updating } = useUpdateReceivedQuantity();
+  const { confirm, loading: confirming } = useConfirmReceipt();
+  const { cancel, loading: cancelling } = useCancelReceipt();
+
+  const productNames = useMemo(
+    () => new Map(products.map((product) => [product.id, `${product.sku} — ${product.name}`])),
+    [products]
+  );
+  const locationNames = useMemo(
+    () => new Map(locations.map((location) => [location.id, location.code])),
+    [locations]
+  );
+
+  if (loading) return <div className="p-6 text-slate-500">Carregando recebimento...</div>;
+
+  if (error || !receipt) {
+    return (
+      <div className="p-6 space-y-4">
+        <button type="button" onClick={onBack} className="text-blue-600">← Voltar</button>
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+          {error || 'Recebimento não encontrado'}
+        </div>
+      </div>
+    );
+  }
+
+  const editable = receipt.status === 'pending' || receipt.status === 'partial';
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-blue-600 mb-2">
+            <ChevronLeft className="w-4 h-4" /> Voltar
+          </button>
+          <h1 className="text-2xl font-bold text-slate-800">{receipt.receipt_number}</h1>
+          <p className="text-slate-500">{receipt.supplier_name}</p>
+        </div>
+        <span className={`px-3 py-1 rounded-full text-sm ${statusClass[receipt.status]}`}>
+          {statusLabel[receipt.status]}
+        </span>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="text-left px-4 py-3">Produto</th>
+                <th className="text-left px-4 py-3">Destino</th>
+                <th className="text-right px-4 py-3">Esperado</th>
+                <th className="text-right px-4 py-3">Já processado</th>
+                <th className="text-right px-4 py-3">Recebido</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {receipt.lines.map((line) => (
+                <tr key={line.id}>
+                  <td className="px-4 py-3 text-sm">{productNames.get(line.product_id) || line.product_id}</td>
+                  <td className="px-4 py-3 text-sm">{line.location_id ? locationNames.get(line.location_id) || line.location_id : '—'}</td>
+                  <td className="px-4 py-3 text-sm text-right">{line.expected_quantity}</td>
+                  <td className="px-4 py-3 text-sm text-right">{line.processed_quantity || 0}</td>
+                  <td className="px-4 py-3 text-right">
+                    {editable ? (
+                      <input
+                        type="number"
+                        min={line.processed_quantity || 0}
+                        max={line.expected_quantity}
+                        defaultValue={line.received_quantity}
+                        disabled={updating}
+                        onBlur={async (event) => {
+                          const quantity = Number(event.target.value);
+                          if (!Number.isFinite(quantity)) return;
+                          if (quantity === line.received_quantity) return;
+                          try {
+                            await update(line.id, quantity);
+                            await refresh();
+                          } catch (err) {
+                            alert(err instanceof Error ? err.message : 'Erro ao atualizar quantidade');
+                            event.target.value = String(line.received_quantity);
+                          }
+                        }}
+                        className="w-24 px-2 py-1 border border-slate-300 rounded text-right"
+                      />
+                    ) : (
+                      <span className="text-sm">{line.received_quantity}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {editable && (
+        <div className="flex justify-end gap-3">
+          <button
+            type="button"
+            disabled={cancelling || confirming}
+            onClick={async () => {
+              if (!window.confirm('Cancelar este recebimento?')) return;
+              try {
+                await cancel(receipt.id);
+                await refresh();
+              } catch (err) {
+                alert(err instanceof Error ? err.message : 'Erro ao cancelar');
+              }
+            }}
+            className="px-4 py-2 border border-red-200 text-red-700 rounded-lg disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={confirming || cancelling || receipt.lines.length === 0}
+            onClick={async () => {
+              try {
+                await confirm(receipt.id);
+                await refresh();
+              } catch (err) {
+                alert(err instanceof Error ? err.message : 'Erro ao processar recebimento');
+              }
+            }}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg disabled:opacity-50"
+          >
+            Processar recebido
+          </button>
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* New Order Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md">
-            <div className="p-6 border-b border-slate-100">
-              <h2 className="text-xl font-bold text-slate-800">Nova Ordem de Recebimento</h2>
+function CreateReceiptModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (id: string) => void | Promise<void>;
+}) {
+  const { products } = useProducts();
+  const { locations } = useLocations();
+  const { createNewReceipt, loading } = useCreateReceipt();
+  const [supplier, setSupplier] = useState('');
+  const [dock, setDock] = useState('');
+  const [expectedDate, setExpectedDate] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [lines, setLines] = useState<DraftLine[]>([
+    { product_id: '', expected_quantity: 1, location_id: '' },
+  ]);
+
+  const updateLine = (index: number, patch: Partial<DraftLine>) => {
+    setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+  };
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setError(null);
+
+    try {
+      if (lines.some((line) => !line.product_id || !line.location_id || line.expected_quantity <= 0)) {
+        throw new Error('Preencha produto, destino e quantidade em todas as linhas.');
+      }
+
+      const created = await createNewReceipt({
+        supplier_name: supplier,
+        expected_date: expectedDate || undefined,
+        dock: dock || undefined,
+        lines,
+      });
+
+      await onCreated(created.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao criar recebimento');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <div className="p-5 border-b border-slate-200 flex items-center justify-between">
+          <h2 className="text-xl font-bold">Novo recebimento</h2>
+          <button type="button" onClick={onClose} className="text-slate-500">Fechar</button>
+        </div>
+        <div className="p-5 space-y-5">
+          {error && <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <label className="md:col-span-1 text-sm">
+              <span className="block mb-1 font-medium">Fornecedor</span>
+              <input required value={supplier} onChange={(e) => setSupplier(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+            </label>
+            <label className="text-sm">
+              <span className="block mb-1 font-medium">Doca</span>
+              <input value={dock} onChange={(e) => setDock(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+            </label>
+            <label className="text-sm">
+              <span className="block mb-1 font-medium">Data prevista</span>
+              <input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+            </label>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold">Itens</h3>
+              <button
+                type="button"
+                onClick={() => setLines((current) => [...current, { product_id: '', expected_quantity: 1, location_id: '' }])}
+                className="text-sm text-blue-600"
+              >
+                + Adicionar item
+              </button>
             </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Fornecedor</label>
-                <input
-                  type="text"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                  placeholder="Nome do fornecedor"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Doca</label>
-                <select className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                  <option>Doca 1</option>
-                  <option>Doca 2</option>
-                  <option>Doca 3</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Data Prevista</label>
-                <input
-                  type="date"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-              <div className="flex justify-end gap-3 pt-4">
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={() => setShowModal(false)}
-                  disabled={creating}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-                >
-                  Criar Ordem
+
+            {lines.map((line, index) => (
+              <div key={index} className="grid md:grid-cols-[1fr_1fr_120px_40px] gap-2 items-end bg-slate-50 p-3 rounded-lg">
+                <label className="text-sm">
+                  <span className="block mb-1">Produto</span>
+                  <select required value={line.product_id} onChange={(e) => updateLine(index, { product_id: e.target.value })} className="w-full border rounded px-2 py-2 bg-white">
+                    <option value="">Selecione</option>
+                    {products.map((product) => <option key={product.id} value={product.id}>{product.sku} — {product.name}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm">
+                  <span className="block mb-1">Destino</span>
+                  <select required value={line.location_id} onChange={(e) => updateLine(index, { location_id: e.target.value })} className="w-full border rounded px-2 py-2 bg-white">
+                    <option value="">Selecione</option>
+                    {locations.map((location) => <option key={location.id} value={location.id}>{location.code}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm">
+                  <span className="block mb-1">Quantidade</span>
+                  <input type="number" min={1} step="any" required value={line.expected_quantity} onChange={(e) => updateLine(index, { expected_quantity: Number(e.target.value) })} className="w-full border rounded px-2 py-2" />
+                </label>
+                <button type="button" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, i) => i !== index))} className="p-2 text-red-500 disabled:opacity-30">
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
-            </div>
+            ))}
           </div>
         </div>
-      )}
+        <div className="p-5 border-t flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="px-4 py-2 border rounded-lg">Cancelar</button>
+          <button type="submit" disabled={loading} className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50">
+            {loading ? 'Criando...' : 'Criar recebimento'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function Summary({ label, value, icon }: { label: string; value: number; icon: React.ReactNode }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <div className="flex items-center gap-2 text-slate-500 text-sm">{icon}{label}</div>
+      <div className="text-2xl font-bold text-slate-800 mt-1">{value}</div>
     </div>
   );
 }

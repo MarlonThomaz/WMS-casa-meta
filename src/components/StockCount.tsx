@@ -1,135 +1,159 @@
-import { useState } from 'react';
-import { useStockCounts, useStockCount, useStockCountLines } from '../hooks/useStockCounts';
-import { useAuth } from '../contexts/AuthContext';
-import { ClipboardCheck, Plus, Play, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { FormEvent, useMemo, useState } from 'react';
+import {
+  AlertCircle,
+  CheckCircle,
+  ClipboardCheck,
+  Play,
+  Plus,
+  XCircle,
+} from 'lucide-react';
+import {
+  useStockCount,
+  useStockCountLines,
+  useStockCounts,
+} from '../hooks/useStockCounts';
+import { useLocations } from '../hooks/useLocations';
+import type { StockCount as StockCountRecord } from '../services/stockCounts';
+
+const statusLabel: Record<StockCountRecord['status'], string> = {
+  pending: 'Pendente',
+  in_progress: 'Em andamento',
+  completed: 'Concluída',
+  cancelled: 'Cancelada',
+};
+
+const typeLabel: Record<StockCountRecord['count_type'], string> = {
+  full: 'Completa',
+  cycle: 'Cíclica',
+  spot: 'Pontual',
+  reconciliation: 'Reconciliação',
+};
+
+function statusClass(status: StockCountRecord['status']) {
+  switch (status) {
+    case 'pending':
+      return 'bg-amber-100 text-amber-700';
+    case 'in_progress':
+      return 'bg-blue-100 text-blue-700';
+    case 'completed':
+      return 'bg-green-100 text-green-700';
+    case 'cancelled':
+      return 'bg-red-100 text-red-700';
+  }
+}
 
 export default function StockCount() {
-  const { user } = useAuth();
   const { counts, loading, error, refresh } = useStockCounts();
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [selectedCount, setSelectedCount] = useState<string | null>(null);
+  const { locations } = useLocations();
+  const [showCreate, setShowCreate] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending': return 'bg-amber-100 text-amber-700';
-      case 'in_progress': return 'bg-blue-100 text-blue-700';
-      case 'completed': return 'bg-green-100 text-green-700';
-      case 'cancelled': return 'bg-red-100 text-red-700';
-      default: return 'bg-slate-100 text-slate-700';
-    }
-  };
+  const locationCodes = useMemo(
+    () => new Map(locations.map((location) => [location.id, location.code])),
+    [locations]
+  );
 
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'pending': return 'Pendente';
-      case 'in_progress': return 'Em Andamento';
-      case 'completed': return 'Concluída';
-      case 'cancelled': return 'Cancelada';
-      default: return status;
-    }
-  };
-
-  const getTypeLabel = (type: string) => {
-    switch (type) {
-      case 'full': return 'Completa';
-      case 'cycle': return 'Cíclica';
-      case 'spot': return 'Pontual';
-      case 'reconciliation': return 'Reconciliação';
-      default: return type;
-    }
-  };
-
-  if (selectedCount) {
+  if (selectedId) {
     return (
       <StockCountDetail
-        countId={selectedCount}
-        onBack={() => setSelectedCount(null)}
+        countId={selectedId}
+        onBack={() => {
+          setSelectedId(null);
+          void refresh();
+        }}
       />
     );
   }
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
             <ClipboardCheck className="w-7 h-7 text-blue-600" />
-            Contagem Física
+            Contagem física
           </h1>
-          <p className="text-slate-500">Realize contagens físicas e ajuste divergências</p>
+          <p className="text-slate-500">
+            Crie um snapshot do estoque, conte fisicamente e aplique somente a divergência.
+          </p>
         </div>
         <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          type="button"
+          onClick={() => setShowCreate(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
         >
           <Plus className="w-4 h-4" />
-          Nova Contagem
+          Nova contagem
         </button>
       </div>
 
       {error && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-          <p className="text-sm text-amber-700">{error}</p>
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex gap-2">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          {error}
         </div>
       )}
 
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        </div>
-      ) : (
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-slate-50 border-b border-slate-200">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Número</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Tipo</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Criado em</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Ações</th>
+                <th className="px-4 py-3 text-left">Número</th>
+                <th className="px-4 py-3 text-left">Tipo</th>
+                <th className="px-4 py-3 text-left">Escopo</th>
+                <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Criada em</th>
+                <th className="px-4 py-3 text-right">Ação</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200">
+            <tbody className="divide-y divide-slate-100">
               {counts.map((count) => (
                 <tr key={count.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 text-sm font-medium text-slate-900">{count.count_number}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{getTypeLabel(count.count_type)}</td>
+                  <td className="px-4 py-3 text-sm font-mono font-medium">{count.count_number}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{typeLabel[count.count_type]}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">
+                    {count.location_id ? locationCodes.get(count.location_id) || count.location_id : 'Todas as localizações'}
+                  </td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(count.status)}`}>
-                      {getStatusLabel(count.status)}
+                    <span className={`inline-flex px-2.5 py-1 rounded-full text-xs ${statusClass(count.status)}`}>
+                      {statusLabel[count.status]}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-600">
-                    {new Date(count.created_at).toLocaleDateString('pt-BR')}
+                    {new Date(count.created_at).toLocaleString('pt-BR')}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 text-right">
                     <button
-                      onClick={() => setSelectedCount(count.id)}
+                      type="button"
+                      onClick={() => setSelectedId(count.id)}
                       className="text-blue-600 hover:text-blue-800 text-sm font-medium"
                     >
-                      Ver Detalhes
+                      Abrir contagem
                     </button>
                   </td>
                 </tr>
               ))}
-              {counts.length === 0 && (
+              {!loading && counts.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                    Nenhuma contagem encontrada
+                  <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
+                    Nenhuma contagem encontrada.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-      )}
+        {loading && <div className="p-6 text-center text-slate-500">Carregando contagens...</div>}
+      </div>
 
-      {showCreateModal && (
+      {showCreate && (
         <CreateStockCountModal
-          onClose={() => setShowCreateModal(false)}
-          onSuccess={() => {
-            setShowCreateModal(false);
-            refresh();
+          onClose={() => setShowCreate(false)}
+          onCreated={async (id) => {
+            setShowCreate(false);
+            await refresh();
+            setSelectedId(id);
           }}
         />
       )}
@@ -138,25 +162,29 @@ export default function StockCount() {
 }
 
 function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => void }) {
-  const { count, loading, error, refresh } = useStockCount(countId);
-  const { lines, loading: linesLoading } = useStockCountLines(countId);
+  const { count, loading, error, refresh: refreshCount } = useStockCount(countId);
+  const {
+    lines,
+    loading: linesLoading,
+    error: linesError,
+    refresh: refreshLines,
+  } = useStockCountLines(countId);
+  const [busy, setBusy] = useState(false);
+
+  const refreshAll = async () => {
+    await Promise.all([refreshCount(), refreshLines()]);
+  };
 
   if (loading || linesLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-      </div>
-    );
+    return <div className="p-6 text-slate-500">Carregando contagem...</div>;
   }
 
-  if (error || !count) {
+  if (error || linesError || !count) {
     return (
-      <div className="p-6">
-        <button onClick={onBack} className="text-blue-600 hover:text-blue-800 mb-4">
-          ← Voltar
-        </button>
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-700">{error || 'Contagem não encontrada'}</p>
+      <div className="p-6 space-y-4">
+        <button type="button" onClick={onBack} className="text-blue-600">← Voltar</button>
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+          {error || linesError || 'Contagem não encontrada'}
         </div>
       </div>
     );
@@ -164,176 +192,209 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <button onClick={onBack} className="text-blue-600 hover:text-blue-800 mb-2">
+          <button type="button" onClick={onBack} className="text-blue-600 hover:text-blue-800 mb-2">
             ← Voltar
           </button>
           <h1 className="text-2xl font-bold text-slate-800">Contagem {count.count_number}</h1>
-          <p className="text-slate-500">
-            {count.count_type === 'full' ? 'Completa' : 
-             count.count_type === 'cycle' ? 'Cíclica' : 
-             count.count_type === 'spot' ? 'Pontual' : 'Reconciliação'}
-          </p>
+          <p className="text-slate-500">{typeLabel[count.count_type]} · {lines.length} linhas no snapshot</p>
         </div>
-        <div className="flex gap-2">
+
+        <div className="flex flex-wrap gap-2">
           {count.status === 'pending' && (
             <button
+              type="button"
+              disabled={busy}
               onClick={async () => {
-                const { startStockCount } = await import('../services/stockCounts');
-                await startStockCount(countId);
-                refresh();
+                try {
+                  setBusy(true);
+                  const { startStockCount } = await import('../services/stockCounts');
+                  await startStockCount(countId);
+                  await refreshAll();
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : 'Erro ao iniciar contagem');
+                } finally {
+                  setBusy(false);
+                }
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50"
             >
-              <Play className="w-4 h-4" />
-              Iniciar Contagem
+              <Play className="w-4 h-4" /> Iniciar
             </button>
           )}
+
           {count.status === 'in_progress' && (
             <button
+              type="button"
+              disabled={busy}
               onClick={async () => {
-                if (confirm('Deseja concluir esta contagem e gerar ajustes?')) {
+                if (!window.confirm('Concluir a contagem e aplicar as divergências ao estoque?')) return;
+                try {
+                  setBusy(true);
                   const { completeStockCount } = await import('../services/stockCounts');
                   const result = await completeStockCount(countId);
-                  alert(`Contagem concluída!\n${result.adjustments} ajustes gerados\n${result.discrepancies} divergências encontradas`);
-                  refresh();
+                  await refreshAll();
+                  alert(`Contagem concluída. ${result.discrepancies} divergência(s) ajustada(s).`);
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : 'Erro ao concluir contagem');
+                } finally {
+                  setBusy(false);
                 }
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg disabled:opacity-50"
             >
-              <CheckCircle className="w-4 h-4" />
-              Concluir Contagem
+              <CheckCircle className="w-4 h-4" /> Concluir
             </button>
           )}
+
           {(count.status === 'pending' || count.status === 'in_progress') && (
             <button
+              type="button"
+              disabled={busy}
               onClick={async () => {
-                if (confirm('Deseja cancelar esta contagem?')) {
+                if (!window.confirm('Cancelar esta contagem?')) return;
+                try {
+                  setBusy(true);
                   const { cancelStockCount } = await import('../services/stockCounts');
                   await cancelStockCount(countId);
-                  refresh();
+                  await refreshAll();
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : 'Erro ao cancelar contagem');
+                } finally {
+                  setBusy(false);
                 }
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-700 rounded-lg disabled:opacity-50"
             >
-              <XCircle className="w-4 h-4" />
-              Cancelar
+              <XCircle className="w-4 h-4" /> Cancelar
             </button>
           )}
         </div>
       </div>
 
       {count.notes && (
-        <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
-          <p className="text-sm text-slate-700">{count.notes}</p>
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">
+          {count.notes}
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-slate-50 border-b border-slate-200">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Produto</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Localização</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase">Sistema</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase">Contado</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase">Diferença</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200">
-            {lines.map((line) => {
-              const difference = line.counted_quantity - line.system_quantity;
-              const hasDifference = difference !== 0;
-              
-              return (
-                <tr key={line.id} className={hasDifference ? 'bg-amber-50' : ''}>
-                  <td className="px-4 py-3 text-sm text-slate-900">
-                    <div className="font-medium">{(line as any).products?.name || 'Produto'}</div>
-                    <div className="text-xs text-slate-500">{(line as any).products?.sku || ''}</div>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-slate-600">
-                    {(line as any).locations?.code || 'Localização'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-center text-slate-600">
-                    {line.system_quantity}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-center">
-                    {count.status === 'in_progress' ? (
-                      <input
-                        type="number"
-                        defaultValue={line.counted_quantity}
-                        onBlur={async (e) => {
-                          const { updateCountedQuantity } = await import('../services/stockCounts');
-                          await updateCountedQuantity(line.id, parseInt(e.target.value) || 0);
-                          refresh();
-                        }}
-                        className="w-20 px-2 py-1 border border-slate-300 rounded text-center"
-                      />
-                    ) : (
-                      line.counted_quantity
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-center">
-                    <span className={
-                      difference > 0 ? 'text-green-600 font-semibold' :
-                      difference < 0 ? 'text-red-600 font-semibold' :
-                      'text-slate-600'
-                    }>
-                      {difference > 0 ? '+' : ''}{difference}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {hasDifference ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-amber-700">
-                        <AlertCircle className="w-3 h-3" />
-                        Divergência
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-xs text-green-700">
-                        <CheckCircle className="w-3 h-3" />
-                        Correto
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {lines.length === 0 && (
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
-                  Nenhum item nesta contagem
-                </td>
+                <th className="px-4 py-3 text-left">Produto</th>
+                <th className="px-4 py-3 text-left">Localização</th>
+                <th className="px-4 py-3 text-right">Snapshot</th>
+                <th className="px-4 py-3 text-right">Contado</th>
+                <th className="px-4 py-3 text-right">Diferença</th>
+                <th className="px-4 py-3 text-left">Resultado</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {lines.map((line) => {
+                const systemQuantity = Number(line.system_quantity);
+                const countedQuantity = Number(line.counted_quantity);
+                const difference = countedQuantity - systemQuantity;
+                const hasDifference = difference !== 0;
+
+                return (
+                  <tr key={line.id} className={hasDifference ? 'bg-amber-50/60' : ''}>
+                    <td className="px-4 py-3 text-sm">
+                      <div className="font-medium text-slate-900">{line.products?.name || line.product_id}</div>
+                      {line.products?.sku && <div className="text-xs text-slate-500 font-mono">{line.products.sku}</div>}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-600">{line.locations?.code || line.location_id}</td>
+                    <td className="px-4 py-3 text-sm text-right">{systemQuantity}</td>
+                    <td className="px-4 py-3 text-right">
+                      {count.status === 'in_progress' ? (
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          defaultValue={countedQuantity}
+                          disabled={busy}
+                          onBlur={async (event) => {
+                            const value = Number(event.target.value);
+                            if (!Number.isFinite(value) || value < 0 || value === countedQuantity) return;
+                            try {
+                              setBusy(true);
+                              const { updateCountedQuantity } = await import('../services/stockCounts');
+                              await updateCountedQuantity(line.id, value);
+                              await refreshAll();
+                            } catch (err) {
+                              alert(err instanceof Error ? err.message : 'Erro ao atualizar contagem');
+                              event.target.value = String(countedQuantity);
+                            } finally {
+                              setBusy(false);
+                            }
+                          }}
+                          className="w-24 px-2 py-1 border border-slate-300 rounded text-right"
+                        />
+                      ) : (
+                        <span className="text-sm">{countedQuantity}</span>
+                      )}
+                    </td>
+                    <td className={`px-4 py-3 text-sm text-right font-semibold ${difference > 0 ? 'text-green-700' : difference < 0 ? 'text-red-700' : 'text-slate-600'}`}>
+                      {difference > 0 ? '+' : ''}{difference}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {hasDifference ? (
+                        <span className="inline-flex items-center gap-1 text-amber-700">
+                          <AlertCircle className="w-4 h-4" /> Divergência
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-green-700">
+                          <CheckCircle className="w-4 h-4" /> Correto
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
 }
 
-function CreateStockCountModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
-  const { user } = useAuth();
-  const [countType, setCountType] = useState<'full' | 'cycle' | 'spot' | 'reconciliation'>('cycle');
+function CreateStockCountModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (id: string) => void | Promise<void>;
+}) {
+  const { locations, loading: locationsLoading } = useLocations();
+  const [countType, setCountType] = useState<StockCountRecord['count_type']>('cycle');
+  const [locationId, setLocationId] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
+  const needsLocation = countType !== 'full';
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
     setError(null);
 
+    if (needsLocation && !locationId) {
+      setError('Selecione a localização que será contada.');
+      return;
+    }
+
     try {
+      setLoading(true);
       const { createStockCount } = await import('../services/stockCounts');
-      await createStockCount({
+      const created = await createStockCount({
         count_type: countType,
-        operator_id: user?.id,
-        notes,
+        location_id: needsLocation ? locationId : undefined,
+        notes: notes || undefined,
       });
-      onSuccess();
+      await onCreated(created.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao criar contagem');
     } finally {
@@ -343,64 +404,86 @@ function CreateStockCountModal({ onClose, onSuccess }: { onClose: () => void; on
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-xl max-w-lg w-full">
         <div className="p-6 border-b border-slate-200">
-          <h2 className="text-xl font-bold text-slate-800">Nova Contagem Física</h2>
+          <h2 className="text-xl font-bold text-slate-800">Nova contagem física</h2>
+          <p className="text-sm text-slate-500 mt-1">O snapshot das linhas é criado automaticamente.</p>
         </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+
+        <div className="p-6 space-y-4">
           {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-700">{error}</p>
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+              {error}
             </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Tipo de Contagem
-            </label>
+          <label className="block text-sm">
+            <span className="block font-medium text-slate-700 mb-2">Tipo de contagem</span>
             <select
               value={countType}
-              onChange={(e) => setCountType(e.target.value as any)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              onChange={(event) => {
+                const next = event.target.value as StockCountRecord['count_type'];
+                setCountType(next);
+                if (next === 'full') setLocationId('');
+              }}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"
             >
-              <option value="cycle">Cíclica (rotina)</option>
-              <option value="spot">Pontual (área específica)</option>
-              <option value="full">Completa (todo inventário)</option>
-              <option value="reconciliation">Reconciliação (ajuste)</option>
+              <option value="cycle">Cíclica</option>
+              <option value="spot">Pontual</option>
+              <option value="full">Completa</option>
+              <option value="reconciliation">Reconciliação</option>
             </select>
-          </div>
+          </label>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Observações
+          {needsLocation && (
+            <label className="block text-sm">
+              <span className="block font-medium text-slate-700 mb-2">Localização</span>
+              <select
+                required
+                disabled={locationsLoading}
+                value={locationId}
+                onChange={(event) => setLocationId(event.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"
+              >
+                <option value="">Selecione a localização</option>
+                {locations.map((location) => (
+                  <option key={location.id} value={location.id}>{location.code} — Zona {location.zone}</option>
+                ))}
+              </select>
             </label>
+          )}
+
+          {countType === 'full' && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+              A contagem completa criará um snapshot de todos os saldos atuais do armazém.
+            </div>
+          )}
+
+          <label className="block text-sm">
+            <span className="block font-medium text-slate-700 mb-2">Observações</span>
             <textarea
               value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              onChange={(event) => setNotes(event.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Motivo da contagem, área específica, etc."
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+              placeholder="Motivo da contagem, turno, responsável, etc."
             />
-          </div>
+          </label>
+        </div>
 
-          <div className="flex gap-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loading ? 'Criando...' : 'Criar Contagem'}
-            </button>
-          </div>
-        </form>
-      </div>
+        <div className="p-6 border-t border-slate-200 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg">
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={loading || locationsLoading}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50"
+          >
+            {loading ? 'Criando snapshot...' : 'Criar contagem'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

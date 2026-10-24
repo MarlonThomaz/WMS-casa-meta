@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, CameraOff, Upload, X } from 'lucide-react';
+import { Camera, CameraOff, Keyboard, Upload, X } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 
 interface BarcodeScannerProps {
@@ -8,25 +8,117 @@ interface BarcodeScannerProps {
   compact?: boolean;
 }
 
+type UsbScannerState = 'idle' | 'reading' | 'success';
+
+const USB_SCAN_MIN_LENGTH = 4;
+const USB_SCAN_MAX_KEY_INTERVAL_MS = 80;
+const USB_SCAN_RESET_MS = 180;
+
 export default function BarcodeScanner({ onScan, onClose, compact = false }: BarcodeScannerProps) {
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [manualCode, setManualCode] = useState('');
+  const [usbState, setUsbState] = useState<UsbScannerState>('idle');
+  const [lastUsbCode, setLastUsbCode] = useState('');
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const containerId = useRef(`barcode-scanner-${Math.random().toString(36).substring(7)}`);
 
+  const usbBufferRef = useRef('');
+  const usbStartedAtRef = useRef(0);
+  const usbLastKeyAtRef = useRef(0);
+  const usbResetTimerRef = useRef<number | null>(null);
+
   useEffect(() => {
+    const resetUsbBuffer = () => {
+      usbBufferRef.current = '';
+      usbStartedAtRef.current = 0;
+      usbLastKeyAtRef.current = 0;
+      setUsbState('idle');
+    };
+
+    const scheduleReset = () => {
+      if (usbResetTimerRef.current !== null) {
+        window.clearTimeout(usbResetTimerRef.current);
+      }
+      usbResetTimerRef.current = window.setTimeout(resetUsbBuffer, USB_SCAN_RESET_MS);
+    };
+
+    const finishUsbScan = () => {
+      const code = usbBufferRef.current.trim();
+      const startedAt = usbStartedAtRef.current;
+      const lastKeyAt = usbLastKeyAtRef.current;
+      const elapsed = startedAt > 0 && lastKeyAt >= startedAt ? lastKeyAt - startedAt : 0;
+      const avgInterval = code.length > 1 ? elapsed / (code.length - 1) : 0;
+
+      const looksLikeScanner =
+        code.length >= USB_SCAN_MIN_LENGTH &&
+        (code.length === 1 || avgInterval <= USB_SCAN_MAX_KEY_INTERVAL_MS);
+
+      if (looksLikeScanner) {
+        setLastUsbCode(code);
+        setUsbState('success');
+        onScan(code);
+        if (navigator.vibrate) navigator.vibrate(120);
+        window.setTimeout(() => setUsbState('idle'), 900);
+      } else {
+        resetUsbBuffer();
+      }
+
+      usbBufferRef.current = '';
+      usbStartedAtRef.current = 0;
+      usbLastKeyAtRef.current = 0;
+      if (usbResetTimerRef.current !== null) {
+        window.clearTimeout(usbResetTimerRef.current);
+        usbResetTimerRef.current = null;
+      }
+    };
+
+    const handleUsbKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.altKey || event.metaKey) return;
+
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        if (usbBufferRef.current.length > 0) {
+          event.preventDefault();
+          finishUsbScan();
+        }
+        return;
+      }
+
+      if (event.key.length !== 1) return;
+
+      const now = performance.now();
+      if (
+        usbLastKeyAtRef.current > 0 &&
+        now - usbLastKeyAtRef.current > USB_SCAN_RESET_MS
+      ) {
+        usbBufferRef.current = '';
+        usbStartedAtRef.current = 0;
+      }
+
+      if (!usbStartedAtRef.current) usbStartedAtRef.current = now;
+      usbLastKeyAtRef.current = now;
+      usbBufferRef.current += event.key;
+      setUsbState('reading');
+      scheduleReset();
+    };
+
+    window.addEventListener('keydown', handleUsbKeyDown, true);
+
     return () => {
+      window.removeEventListener('keydown', handleUsbKeyDown, true);
+      if (usbResetTimerRef.current !== null) {
+        window.clearTimeout(usbResetTimerRef.current);
+      }
       if (scannerRef.current && scannerRef.current.isScanning) {
         scannerRef.current.stop().catch(() => {});
       }
     };
-  }, []);
+  }, [onScan]);
 
   const startScanning = async () => {
     try {
       setError(null);
-      
+
       const scanner = new Html5Qrcode(containerId.current);
       scannerRef.current = scanner;
 
@@ -38,13 +130,11 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
         },
         (decodedText) => {
           onScan(decodedText);
-          // Vibrar se disponível
           if (navigator.vibrate) {
             navigator.vibrate(200);
           }
         },
         (errorMessage) => {
-          // Erros de parse são normais, ignorar
           if (!errorMessage.includes('NotFoundException')) {
             console.warn('Scan error:', errorMessage);
           }
@@ -93,9 +183,15 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
     }
   };
 
+  const usbStatusClass =
+    usbState === 'success'
+      ? 'bg-green-50 border-green-200 text-green-800'
+      : usbState === 'reading'
+        ? 'bg-amber-50 border-amber-200 text-amber-800'
+        : 'bg-blue-50 border-blue-200 text-blue-800';
+
   return (
     <div className={`bg-white rounded-xl border border-slate-200 overflow-hidden ${compact ? '' : 'shadow-sm'}`}>
-      {/* Header */}
       <div className="p-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${scanning ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`}></div>
@@ -110,7 +206,27 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
         )}
       </div>
 
-      {/* Scanner area */}
+      <div className={`m-3 p-3 rounded-lg border ${usbStatusClass}`}>
+        <div className="flex items-start gap-2">
+          <Keyboard className="w-5 h-5 mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <div className="text-sm font-semibold">
+              {usbState === 'success'
+                ? 'Leitura USB recebida'
+                : usbState === 'reading'
+                  ? 'Recebendo leitura USB...'
+                  : 'Leitor USB HID ativo'}
+            </div>
+            <div className="text-xs mt-0.5 opacity-90">
+              Conecte um leitor laser genérico configurado como teclado. O WMS reconhece códigos rápidos finalizados por Enter ou Tab.
+            </div>
+            {lastUsbCode && (
+              <div className="text-xs font-mono mt-1 break-all">Último: {lastUsbCode}</div>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="relative bg-slate-900">
         <div
           id={containerId.current}
@@ -118,15 +234,14 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
           style={{ minHeight: compact ? '180px' : '260px' }}
         />
         {!scanning && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-white pointer-events-none">
             <Camera className="w-12 h-12 mb-3 text-slate-400" />
             <p className="text-sm text-slate-300 mb-1">Scanner de câmera</p>
-            <p className="text-xs text-slate-500">Use o campo manual abaixo</p>
+            <p className="text-xs text-slate-500">Ou use leitor USB / entrada manual abaixo</p>
           </div>
         )}
       </div>
 
-      {/* Controls */}
       <div className="p-3 flex items-center gap-2">
         {!scanning ? (
           <button
@@ -134,7 +249,7 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
             className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
           >
             <Camera className="w-4 h-4" />
-            Iniciar Scanner
+            Iniciar Câmera
           </button>
         ) : (
           <button
@@ -142,7 +257,7 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
             className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium"
           >
             <CameraOff className="w-4 h-4" />
-            Parar Scanner
+            Parar Câmera
           </button>
         )}
         <label className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors cursor-pointer text-sm font-medium">
@@ -158,7 +273,6 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
         </label>
       </div>
 
-      {/* Manual input */}
       <div className="p-3 border-t border-slate-100">
         <form onSubmit={handleManualSubmit} className="flex gap-2">
           <input
@@ -178,7 +292,6 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
         </form>
       </div>
 
-      {/* Error */}
       {error && (
         <div className="px-3 pb-3">
           <div className="p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
