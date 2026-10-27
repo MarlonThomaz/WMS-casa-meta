@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:homolog": "vite --mode homologation",
     "build": "vite build",
+    "build:homolog": "vite build --mode homologation",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
