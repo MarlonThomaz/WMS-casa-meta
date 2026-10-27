@@ -2,15 +2,16 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { Role } from '../types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabasePublishableKey =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 export const isDemoMode = !isSupabaseConfigured && import.meta.env.VITE_ENABLE_DEMO === 'true';
 
 let supabaseClient: SupabaseClient;
 
 if (isSupabaseConfigured) {
-  supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+  supabaseClient = createClient(supabaseUrl, supabasePublishableKey, {
     auth: {
       autoRefreshToken: true,
       persistSession: true,
@@ -28,7 +29,7 @@ if (isSupabaseConfigured) {
     console.warn('WMS iniciado em modo demonstração explícito (VITE_ENABLE_DEMO=true).');
   } else {
     console.error(
-      'Supabase não configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.'
+      'Supabase não configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY (ou VITE_SUPABASE_ANON_KEY legado).'
     );
   }
 }
