@@ -13,6 +13,7 @@ import {
   useStockCounts,
 } from '../hooks/useStockCounts';
 import { useLocations } from '../hooks/useLocations';
+import { useAuth } from '../contexts/AuthContext';
 import type { StockCount as StockCountRecord } from '../services/stockCounts';
 
 const statusLabel: Record<StockCountRecord['status'], string> = {
@@ -43,6 +44,8 @@ function statusClass(status: StockCountRecord['status']) {
 }
 
 export default function StockCount() {
+  const { user } = useAuth();
+  const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
   const { counts, loading, error, refresh } = useStockCounts();
   const { locations } = useLocations();
   const [showCreate, setShowCreate] = useState(false);
@@ -80,7 +83,9 @@ export default function StockCount() {
         <button
           type="button"
           onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          disabled={!canOperate}
+          title={canOperate ? 'Criar contagem' : 'Seu perfil é somente leitura'}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Plus className="w-4 h-4" />
           Nova contagem
@@ -162,6 +167,8 @@ export default function StockCount() {
 }
 
 function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => void }) {
+  const { user } = useAuth();
+  const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
   const { count, loading, error, refresh: refreshCount } = useStockCount(countId);
   const {
     lines,
@@ -202,7 +209,7 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {count.status === 'pending' && (
+          {canOperate && count.status === 'pending' && (
             <button
               type="button"
               disabled={busy}
@@ -224,7 +231,7 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
             </button>
           )}
 
-          {count.status === 'in_progress' && (
+          {canOperate && count.status === 'in_progress' && (
             <button
               type="button"
               disabled={busy}
@@ -248,7 +255,7 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
             </button>
           )}
 
-          {(count.status === 'pending' || count.status === 'in_progress') && (
+          {canOperate && (count.status === 'pending' || count.status === 'in_progress') && (
             <button
               type="button"
               disabled={busy}
@@ -308,7 +315,7 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
                     <td className="px-4 py-3 text-sm text-slate-600">{line.locations?.code || line.location_id}</td>
                     <td className="px-4 py-3 text-sm text-right">{systemQuantity}</td>
                     <td className="px-4 py-3 text-right">
-                      {count.status === 'in_progress' ? (
+                      {count.status === 'in_progress' && canOperate ? (
                         <input
                           type="number"
                           min={0}

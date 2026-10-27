@@ -19,6 +19,7 @@ import {
 } from '../hooks/useReceiving';
 import { useProducts } from '../hooks/useProducts';
 import { useLocations } from '../hooks/useLocations';
+import { useAuth } from '../contexts/AuthContext';
 import type { DBReceipt } from '../types';
 
 const statusLabel: Record<DBReceipt['status'], string> = {
@@ -42,6 +43,8 @@ type DraftLine = {
 };
 
 export default function Receiving() {
+  const { user } = useAuth();
+  const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
   const { receipts, loading, error, refresh } = useReceipts();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -77,7 +80,9 @@ export default function Receiving() {
         <button
           type="button"
           onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          disabled={!canOperate}
+          title={canOperate ? 'Criar recebimento' : 'Seu perfil é somente leitura'}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Plus className="w-4 h-4" />
           Nova ordem
@@ -179,6 +184,8 @@ export default function Receiving() {
 }
 
 function ReceiptDetail({ receiptId, onBack }: { receiptId: string; onBack: () => void }) {
+  const { user } = useAuth();
+  const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
   const { receipt, loading, error, refresh } = useReceipt(receiptId);
   const { products } = useProducts();
   const { locations } = useLocations();
@@ -208,7 +215,7 @@ function ReceiptDetail({ receiptId, onBack }: { receiptId: string; onBack: () =>
     );
   }
 
-  const editable = receipt.status === 'pending' || receipt.status === 'partial';
+  const editable = canOperate && (receipt.status === 'pending' || receipt.status === 'partial');
 
   return (
     <div className="p-6 space-y-6">

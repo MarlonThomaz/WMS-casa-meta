@@ -22,6 +22,7 @@ import {
 } from '../hooks/useShipping';
 import { useProducts } from '../hooks/useProducts';
 import { useLocations } from '../hooks/useLocations';
+import { useAuth } from '../contexts/AuthContext';
 import type { DBShipment } from '../types';
 
 const statusLabel: Record<DBShipment['status'], string> = {
@@ -54,6 +55,8 @@ type DraftLine = {
 };
 
 export default function Shipping() {
+  const { user } = useAuth();
+  const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
   const { shipments, loading, error, refresh } = useShipments();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -89,7 +92,9 @@ export default function Shipping() {
         <button
           type="button"
           onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          disabled={!canOperate}
+          title={canOperate ? 'Criar expedição' : 'Seu perfil é somente leitura'}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Plus className="w-4 h-4" />
           Nova expedição
@@ -191,6 +196,8 @@ export default function Shipping() {
 }
 
 function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: () => void }) {
+  const { user } = useAuth();
+  const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
   const { shipment, loading, error, refresh } = useShipment(shipmentId);
   const { products } = useProducts();
   const { locations } = useLocations();
@@ -256,7 +263,7 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
                   <td className="px-4 py-3 text-sm">{line.from_location_id ? locationNames.get(line.from_location_id) || line.from_location_id : '—'}</td>
                   <td className="px-4 py-3 text-sm text-right">{line.requested_quantity}</td>
                   <td className="px-4 py-3 text-right">
-                    {shipment.status === 'picking' ? (
+                    {shipment.status === 'picking' && canOperate ? (
                       <input
                         type="number"
                         min={0}
@@ -289,7 +296,7 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
       </div>
 
       <div className="flex flex-wrap justify-end gap-3">
-        {(shipment.status === 'pending' || shipment.status === 'picking') && (
+        {canOperate && (shipment.status === 'pending' || shipment.status === 'picking') && (
           <button
             type="button"
             disabled={busy}
@@ -308,7 +315,7 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
           </button>
         )}
 
-        {shipment.status === 'pending' && (
+        {canOperate && shipment.status === 'pending' && (
           <button
             type="button"
             disabled={busy || shipment.lines.length === 0}
@@ -326,7 +333,7 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
           </button>
         )}
 
-        {shipment.status === 'picking' && (
+        {canOperate && shipment.status === 'picking' && (
           <button
             type="button"
             disabled={busy}
@@ -344,7 +351,7 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
           </button>
         )}
 
-        {shipment.status === 'packed' && (
+        {canOperate && shipment.status === 'packed' && (
           <button
             type="button"
             disabled={busy}

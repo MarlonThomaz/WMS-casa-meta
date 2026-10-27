@@ -246,17 +246,36 @@ export async function getStockCountLinesWithDetails(countId: string) {
 
 export async function getInventoryAccuracy(locationId?: string) {
   if (isDemoMode) {
-    const data = demoStockCountLines.filter((line) => !locationId || line.location_id === locationId);
+    const completedIds = new Set(demoStockCounts.filter((count) => count.status === 'completed').map((count) => count.id));
+    const data = demoStockCountLines.filter(
+      (line) => completedIds.has(line.stock_count_id) && (!locationId || line.location_id === locationId)
+    );
     if (data.length === 0) return { accuracy: 100, total_lines: 0, accurate_lines: 0, discrepancies: 0 };
     const accurateLines = data.filter((line) => Number(line.system_quantity) === Number(line.counted_quantity)).length;
     return { accuracy: (accurateLines / data.length) * 100, total_lines: data.length, accurate_lines: accurateLines, discrepancies: data.length - accurateLines };
   }
+
   if (!isSupabaseConfigured) return { accuracy: 100, total_lines: 0, accurate_lines: 0, discrepancies: 0 };
-  let query = supabase.from('stock_count_lines').select('system_quantity, counted_quantity');
+
+  const { data: completedCounts, error: countsError } = await supabase
+    .from('stock_counts')
+    .select('id')
+    .eq('status', 'completed');
+  if (countsError) throw new Error(`Erro ao buscar contagens concluídas: ${countsError.message}`);
+
+  const completedIds = (completedCounts || []).map((count) => count.id);
+  if (completedIds.length === 0) return { accuracy: 100, total_lines: 0, accurate_lines: 0, discrepancies: 0 };
+
+  let query = supabase
+    .from('stock_count_lines')
+    .select('system_quantity, counted_quantity')
+    .in('stock_count_id', completedIds);
   if (locationId) query = query.eq('location_id', locationId);
+
   const { data, error } = await query;
   if (error) throw new Error(`Erro ao calcular precisão: ${error.message}`);
   if (!data || data.length === 0) return { accuracy: 100, total_lines: 0, accurate_lines: 0, discrepancies: 0 };
+
   const accurateLines = data.filter((line) => Number(line.system_quantity) === Number(line.counted_quantity)).length;
   return { accuracy: (accurateLines / data.length) * 100, total_lines: data.length, accurate_lines: accurateLines, discrepancies: data.length - accurateLines };
 }
