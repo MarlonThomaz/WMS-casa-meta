@@ -39,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     let mounted = true;
+    let profileLoadTimer: ReturnType<typeof setTimeout> | null = null;
 
     const bootstrap = async () => {
       try {
@@ -75,9 +76,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!mounted) return;
 
       setSession(nextSession);
+
+      if (profileLoadTimer) {
+        clearTimeout(profileLoadTimer);
+        profileLoadTimer = null;
+      }
+
       if (nextSession?.user) {
         setLoading(true);
-        void loadUserProfile(nextSession.user.id);
+        // Supabase recomenda não iniciar outra chamada da API de dentro do
+        // callback de onAuthStateChange. Adiamos a leitura do perfil para o
+        // próximo task da event loop para evitar deadlock do cliente Auth.
+        profileLoadTimer = setTimeout(() => {
+          if (mounted) void loadUserProfile(nextSession.user.id);
+        }, 0);
       } else {
         setUser(null);
         setLoading(false);
@@ -86,6 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       mounted = false;
+      if (profileLoadTimer) clearTimeout(profileLoadTimer);
       subscription.unsubscribe();
     };
   }, []);
@@ -131,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (!isSupabaseConfigured) {
       throw new Error(
-        'Supabase não configurado. Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.'
+        'Supabase não configurado. Configure VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY.'
       );
     }
 
