@@ -179,6 +179,8 @@ export type Page =
   | 'barcode-kit'
   | 'stock-count'
   | 'pilot-dashboard'
+  | 'audit'
+  | 'users'
   | 'help';
 
 export type ProductWithStock = DBProduct & {

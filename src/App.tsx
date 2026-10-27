@@ -12,6 +12,8 @@ import Movements from './components/Movements';
 import BarcodeKit from './components/BarcodeKit';
 import StockCount from './components/StockCount';
 import PilotDashboard from './components/PilotDashboard';
+import AuditLog from './components/AuditLog';
+import UserAdmin from './components/UserAdmin';
 import Help from './components/Help';
 
 function renderPage(page: Page) {
@@ -25,6 +27,8 @@ function renderPage(page: Page) {
     case 'barcode-kit': return <BarcodeKit />;
     case 'stock-count': return <StockCount />;
     case 'pilot-dashboard': return <PilotDashboard />;
+    case 'audit': return <AuditLog />;
+    case 'users': return <UserAdmin />;
     case 'help': return <Help />;
     default: return <Dashboard />;
   }

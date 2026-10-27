@@ -3,38 +3,52 @@ import {
   ArrowLeftRight,
   BarChart3,
   Building2,
-  HelpCircle,
   ClipboardCheck,
+  FileSearch,
+  HelpCircle,
   LayoutDashboard,
   LogOut,
   MapPin,
   Package,
   ScanLine,
   Truck,
+  Users,
   Warehouse,
 } from 'lucide-react';
-import { Page } from '../types';
+import type { Page, Role } from '../types';
 
 interface SidebarProps {
   currentPage: Page;
   onPageChange: (page: Page) => void;
 }
 
-const menuItems = [
-  { id: 'dashboard' as Page, label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'inventory' as Page, label: 'Inventário', icon: Package },
-  { id: 'locations' as Page, label: 'Localizações', icon: MapPin },
-  { id: 'receiving' as Page, label: 'Recebimento', icon: Warehouse },
-  { id: 'shipping' as Page, label: 'Expedição', icon: Truck },
-  { id: 'movements' as Page, label: 'Movimentações', icon: ArrowLeftRight },
-  { id: 'barcode-kit' as Page, label: 'Códigos de barras', icon: ScanLine },
-  { id: 'stock-count' as Page, label: 'Contagem física', icon: ClipboardCheck },
-  { id: 'pilot-dashboard' as Page, label: 'Piloto', icon: BarChart3 },
-  { id: 'help' as Page, label: 'Ajuda', icon: HelpCircle },
+type MenuItem = {
+  id: Page;
+  label: string;
+  icon: typeof LayoutDashboard;
+  roles?: Role[];
+};
+
+const menuItems: MenuItem[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'inventory', label: 'Inventário', icon: Package },
+  { id: 'locations', label: 'Localizações', icon: MapPin },
+  { id: 'receiving', label: 'Recebimento', icon: Warehouse },
+  { id: 'shipping', label: 'Expedição', icon: Truck },
+  { id: 'movements', label: 'Movimentações', icon: ArrowLeftRight },
+  { id: 'barcode-kit', label: 'Códigos de barras', icon: ScanLine },
+  { id: 'stock-count', label: 'Contagem física', icon: ClipboardCheck },
+  { id: 'pilot-dashboard', label: 'Piloto', icon: BarChart3 },
+  { id: 'audit', label: 'Auditoria', icon: FileSearch, roles: ['admin', 'manager'] },
+  { id: 'users', label: 'Usuários', icon: Users, roles: ['admin'] },
+  { id: 'help', label: 'Ajuda', icon: HelpCircle },
 ];
 
 export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
   const { user, signOut, isDemo } = useAuth();
+  const visibleItems = menuItems.filter(
+    (item) => !item.roles || (user?.role ? item.roles.includes(user.role) : false)
+  );
 
   return (
     <aside className="w-64 bg-slate-900 text-white flex flex-col min-h-screen shrink-0">
@@ -52,7 +66,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
 
       <nav className="flex-1 p-4 overflow-y-auto">
         <ul className="space-y-1">
-          {menuItems.map((item) => {
+          {visibleItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentPage === item.id;
 
