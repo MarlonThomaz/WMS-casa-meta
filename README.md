@@ -1,418 +1,149 @@
-# 🎉 WMS Casa Meta - Sistema Completo Multiplataforma
+# WMS Casa Meta
 
-## ✅ Projeto Concluído!
+Sistema web de gerenciamento de armazém para a operação da Casa Meta, desenvolvido com React, TypeScript, Vite, Supabase e PostgreSQL.
 
-O **WMS Casa Meta** está 100% funcional e pronto para ser executado em **Windows**, **Android** e **iOS**.
+## Estado do projeto
 
----
+O projeto está em **estabilização para piloto web controlado**. O núcleo transacional já cobre os fluxos principais do MVP, mas a versão ainda deve ser homologada em um projeto Supabase de teste real antes de qualquer uso em produção.
 
-## 🚀 Começando Agora
+A branch de estabilização é `wms-stabilization-round8` e o trabalho entra na `main` somente por pull request após CI e homologação.
 
-### Instalação Rápida (1 minuto)
+## Escopo atual
+
+A versão web cobre:
+
+- autenticação com Supabase Auth;
+- papéis `admin`, `manager`, `operator` e `viewer`;
+- administração de perfis e ativação de usuários;
+- produtos e códigos de barras;
+- endereçamento/localizações;
+- saldo e reserva de estoque;
+- recebimento parcial e idempotente;
+- expedição, reserva, picking parcial, packing e shipping;
+- entradas, saídas, transferências e ajustes manuais;
+- contagem física com snapshot e reconciliação;
+- auditoria de operações e catálogo;
+- scanner por câmera, arquivo, entrada manual e leitor USB HID;
+- dashboard operacional e dashboard do piloto.
+
+## Fora do critério de pronto desta fase
+
+PWA instalável, Electron/Windows, Capacitor/Android, iOS, operação offline e sincronização offline ficam para uma etapa posterior ao piloto web.
+
+## Stack
+
+- React 18
+- TypeScript
+- Vite
+- Tailwind CSS
+- Supabase Auth
+- PostgreSQL / Supabase
+- Row Level Security (RLS)
+- GitHub Actions
+
+## Desenvolvimento local
+
+Recomendado: Node.js 22.
 
 ```bash
-# 1. Instalar dependências
-npm install
-
-# 2. Executar setup automático
-node scripts/quick-setup.js
-
-# 3. Iniciar servidor de desenvolvimento
+npm ci
+cp .env.example .env
 npm run dev
-
-# 4. Acessar no navegador
-# http://localhost:3000
 ```
 
-### Instalação Completa (com executáveis)
+Para backend real de homologação:
 
-```bash
-# Executar script de build multiplataforma
-node scripts/build-all.js
+```env
+VITE_SUPABASE_URL=https://seu-projeto.supabase.co
+VITE_SUPABASE_ANON_KEY=sua-chave-anon-aqui
+VITE_ENABLE_DEMO=false
 ```
 
-Este script vai criar:
-- ✅ **PWA** (instalável em qualquer dispositivo)
-- ✅ **Windows .exe** (aplicativo desktop)
-- ✅ **Android APK** (aplicativo mobile)
-- ✅ **iOS IPA** (aplicativo mobile - apenas Mac)
+Para demonstração isolada, sem credenciais e sem persistência real:
 
----
-
-## 📱 Como Instalar em Cada Plataforma
-
-### Opção 1: PWA (Recomendado) ⭐
-
-**Funciona em:** Windows, Android, iOS, qualquer dispositivo com navegador
-
-#### Windows (Chrome/Edge)
-1. Acesse: `http://localhost:3000` ou seu domínio
-2. Clique no ícone de instalação na barra de endereço
-3. Clique em "Instalar"
-4. ✅ Pronto! O app aparece no Menu Iniciar
-
-#### Android (Chrome)
-1. Acesse: `http://localhost:3000` ou seu domínio
-2. Toque no menu ⋮ → "Adicionar à tela inicial"
-3. Toque em "Adicionar"
-4. ✅ Pronto! O ícone aparece na tela inicial
-
-#### iOS (Safari)
-1. Acesse: `http://localhost:3000` ou seu domínio (use Safari!)
-2. Toque no botão Compartilhar ↗️
-3. Toque em "Adicionar à Tela de Início"
-4. Toque em "Adicionar"
-5. ✅ Pronto! O ícone aparece na tela inicial
-
----
-
-### Opção 2: Aplicativo Desktop Windows (.exe)
-
-```bash
-# Gerar executável Windows
-npm run electron:build
+```env
+VITE_ENABLE_DEMO=true
 ```
 
-O arquivo será gerado em: `release/WMS Casa Meta Setup.exe`
+Nunca coloque `service_role`, secret key ou qualquer chave privilegiada em variável `VITE_*`.
 
-**Instalação:**
-1. Execute o arquivo `.exe`
-2. Siga as instruções do instalador
-3. ✅ Pronto! O app aparece no Menu Iniciar
-
----
-
-### Opção 3: Aplicativo Android (APK)
+## Checks locais
 
 ```bash
-# 1. Adicionar plataforma Android
-npx cap add android
-
-# 2. Sincronizar arquivos
-npx cap sync android
-
-# 3. Abrir no Android Studio
-npx cap open android
-
-# 4. No Android Studio:
-#    Build → Generate Signed Bundle/APK → APK → Next
-#    Configure a assinatura → Finish
-```
-
-O APK será gerado em: `android/app/build/outputs/apk/release/app-release.apk`
-
-**Instalação:**
-1. Transfira o APK para o dispositivo Android
-2. Toque no APK para instalar
-3. ✅ Pronto!
-
----
-
-### Opção 4: Aplicativo iOS (apenas Mac)
-
-```bash
-# 1. Adicionar plataforma iOS
-npx cap add ios
-
-# 2. Sincronizar arquivos
-npx cap sync ios
-
-# 3. Abrir no Xcode
-npx cap open ios
-
-# 4. No Xcode:
-#    Configure a assinatura (Signing & Capabilities)
-#    Product → Archive → Distribute App
-```
-
-**Instalação:**
-- **App Store:** Publique para distribuição global
-- **TestFlight:** Para testes com até 10.000 usuários
-- **Ad Hoc:** Para distribuição limitada
-
----
-
-## 📚 Documentação Completa
-
-### Guias Principais
-
-| Arquivo | Descrição |
-|---------|-----------|
-| **README.md** | Visão geral do projeto |
-| **INSTALL_GUIDE.md** | Guia completo de instalação multiplataforma |
-| **CRIAR_EXECUTAVEIS.md** | Como criar .exe, APK e IPA |
-| **SETUP_GUIDE.md** | Configuração do Supabase |
-| **README_DISTRIBUICAO.md** | Guia para distribuir o app |
-
-### Documentação Técnica (Etapas)
-
-| Arquivo | Descrição |
-|---------|-----------|
-| **ETAPA1_CONCLUIDA.md** | Estrutura do banco de dados |
-| **ETAPA2_CONCLUIDA.md** | Autenticação e telas principais |
-| **ETAPA3_CONCLUIDA.md** | Recebimento e Movimentações |
-| **ETAPA4_CONCLUIDA.md** | Código de Barras |
-| **ETAPA5_CONCLUIDA.md** | Dashboard e Relatórios |
-| **ETAPA6_CONCLUIDA.md** | Piloto Controlado |
-
----
-
-## 🎯 Funcionalidades Implementadas
-
-### ✅ Gestão de Produtos
-- Cadastro completo de produtos
-- Controle de estoque mínimo/máximo
-- Busca e filtros avançados
-- Códigos de barras múltiplos
-
-### ✅ Gestão de Localizações
-- Mapa visual do armazém
-- Zonas, corredores e níveis
-- Controle de ocupação
-- Endereçamento completo
-
-### ✅ Motor de Estoque
-- Transações atômicas
-- Validação de saldo
-- Proteção contra duplicidade
-- Rastreabilidade completa
-
-### ✅ Recebimento
-- Conferência de mercadorias
-- Validação de quantidades
-- Atualização automática de estoque
-- Histórico completo
-
-### ✅ Expedição
-- Separação (picking)
-- Embalagem (packing)
-- Despacho (shipping)
-- Reserva de estoque
-
-### ✅ Código de Barras
-- Scanner de câmera
-- Upload de imagem
-- Entrada manual
-- Validação de formatos
-
-### ✅ Contagem Física
-- Contagens cíclicas
-- Ajustes automáticos
-- Cálculo de precisão
-- Geração de relatórios
-
-### ✅ Dashboard
-- KPIs em tempo real
-- Gráficos interativos
-- Alertas de estoque baixo
-- Exportação CSV
-
-### ✅ Piloto Controlado
-- Métricas de performance
-- Checklist de validação
-- Acompanhamento de precisão
-- Próximos passos
-
-### ✅ Multiplataforma
-- PWA (Windows, Android, iOS)
-- Windows .exe (Electron)
-- Android APK (Capacitor)
-- iOS IPA (Capacitor)
-
----
-
-## 🔧 Scripts Disponíveis
-
-```bash
-# Desenvolvimento
-npm run dev              # Iniciar servidor de desenvolvimento
-npm run build            # Build para produção
-npm run preview          # Visualizar build de produção
-
-# Desktop (Windows)
-npm run electron:dev     # Testar app Windows
-npm run electron:build   # Gerar executável Windows
-
-# Multiplataforma
-node scripts/build-all.js              # Build para todas as plataformas
-node scripts/build-all.js windows      # Apenas Windows
-node scripts/build-all.js android      # Apenas Android
-node scripts/build-all.js ios          # Apenas iOS (Mac)
-node scripts/build-all.js pwa          # Apenas PWA
-
-# Utilitários
-node scripts/quick-setup.js            # Instalação rápida
-node scripts/generate-icons.js         # Gerar ícones
-```
-
----
-
-## 📋 Checklist de Instalação
-
-### Configuração Inicial
-- [ ] Instalar Node.js 18+
-- [ ] Clonar/baixar o projeto
-- [ ] Executar `npm install`
-- [ ] Executar `node scripts/quick-setup.js`
-- [ ] Configurar Supabase (criar projeto)
-- [ ] Configurar arquivo `.env`
-- [ ] Executar migrations no Supabase
-- [ ] Criar usuário administrador
-
-### Testes
-- [ ] Testar login/logout
-- [ ] Testar cadastro de produtos
-- [ ] Testar cadastro de localizações
-- [ ] Testar recebimento
-- [ ] Testar expedição
-- [ ] Testar scanner de código de barras
-- [ ] Testar contagem física
-- [ ] Testar dashboard
-
-### Distribuição
-- [ ] Build do projeto (`npm run build`)
-- [ ] Testar PWA em todos os dispositivos
-- [ ] Gerar executável Windows (opcional)
-- [ ] Gerar APK Android (opcional)
-- [ ] Gerar IPA iOS (opcional)
-- [ ] Publicar em servidor com HTTPS
-- [ ] Configurar domínio (opcional)
-
----
-
-## 🌐 Deploy para Produção
-
-### Opção 1: Vercel (Grátis)
-
-```bash
-npm install -g vercel
+npm run typecheck
 npm run build
-vercel --prod
 ```
 
-### Opção 2: Netlify (Grátis)
+## Banco de dados
 
-```bash
-npm install -g netlify-cli
-npm run build
-netlify deploy --prod --dir=dist
-```
+As migrations ficam em `supabase/migrations` e são aplicadas em ordem numérica. A cadeia atual inclui a migration `017_pilot_inventory_integrity.sql`, que reforça integridade de reservas, estoque disponível, picking parcial e reconciliação de contagem.
 
-### Opção 3: Servidor Próprio
+A CI aplica todas as migrations do zero em PostgreSQL isolado e executa regressões de:
 
-1. Build: `npm run build`
-2. Copie `dist/` para o servidor
-3. Configure Nginx/Apache
-4. Configure HTTPS (obrigatório para PWA)
+- recebimento parcial e retry idempotente;
+- autorização e RLS;
+- picking parcial e linha separada com quantidade zero;
+- cancelamento e liberação de reservas;
+- proteção contra consumo de estoque reservado;
+- preservação de movimentos posteriores à contagem física;
+- cadastro atômico de produto + código de barras + estoque inicial.
 
----
+A CI não reproduz integralmente Supabase Auth/PostgREST. Por isso, **CI verde não substitui homologação em Supabase real**.
 
-## 🆘 Solução de Problemas
+## Regras de arquitetura
 
-### App não instala (PWA)
-- Verifique se está usando HTTPS
-- Limpe o cache do navegador
-- Verifique se o `manifest.json` está acessível
+### Autoridade no banco
 
-### Scanner não funciona
-- Permita acesso à câmera no navegador
-- Use HTTPS (obrigatório para câmera)
-- No iOS, use Safari (não Chrome)
+O navegador não é fonte confiável para autoria, saldo, reservas ou eventos de auditoria. Operações críticas passam por RPCs/triggers e o banco deriva o usuário a partir da sessão autenticada.
 
-### App não carrega dados
-- Verifique as credenciais do Supabase no `.env`
-- Verifique se as migrations foram executadas
-- Verifique o console do navegador (F12)
+### Estoque
 
-### Build do Electron falha
-- Verifique se `electron/main.js` existe
-- Execute `npm run build` antes
-- Verifique permissões de escrita
+`stock_balances` não deve ser alterado diretamente pelo cliente. Saídas, transferências e ajustes negativos usam estoque **disponível**, sem consumir quantidade reservada para expedições.
 
-### Build do Android falha
-- Verifique se o Android Studio está instalado
-- Configure `ANDROID_HOME`
-- Aceite licenças do SDK: `sdkmanager --licenses`
+### Recebimento
 
-### Build do iOS falha (Mac)
-- Verifique se o Xcode está instalado
-- Configure provisioning profile
-- Aceite termos do Xcode
+`processed_quantity` é interno ao banco. Reprocessar um recebimento parcial não duplica saldo: somente o delta ainda não contabilizado é aplicado.
 
----
+### Expedição
 
-## 📞 Suporte
+Ao iniciar picking, a quantidade solicitada é reservada. Ao confirmar o picking, a quantidade realmente separada vira saída física e toda reserva não utilizada é liberada, inclusive linhas com `picked_quantity = 0`.
 
-### Documentação
-- **Instalação:** `INSTALL_GUIDE.md`
-- **Executáveis:** `CRIAR_EXECUTAVEIS.md`
-- **Configuração:** `SETUP_GUIDE.md`
-- **Técnica:** `ETAPA*.md`
+### Contagem
 
-### Comunidade
-- **Electron:** https://www.electronjs.org/docs
-- **Capacitor:** https://capacitorjs.com/docs
-- **PWA:** https://web.dev/progressive-web-apps/
-- **Supabase:** https://supabase.com/docs
+A contagem possui snapshot do sistema e instante físico de contagem. Na conclusão, movimentos legítimos posteriores ao instante contado são preservados; a reconciliação não deve apagar operações que ocorreram depois da contagem física.
 
----
+### RLS e papéis
 
-## 🎉 Pronto para Usar!
+- `admin`: operação completa, usuários e auditoria;
+- `manager`: operação completa, endereços e auditoria;
+- `operator`: fluxos operacionais permitidos;
+- `viewer`: somente leitura.
 
-Seu **WMS Casa Meta** está completo e pronto para:
+Uma conta criada no Supabase Auth nasce como `viewer` e `active = false`. O admin ativa e define o papel pela tela **Usuários**.
 
-✅ **Windows** - Via PWA ou .exe  
-✅ **Android** - Via PWA ou APK  
-✅ **iOS** - Via PWA ou IPA  
-✅ **Web** - Via navegador  
+### Auditoria
 
-### Próximos Passos
+Eventos autoritativos são gravados por funções e triggers do banco. O navegador consulta a auditoria, mas não pode fabricar eventos diretamente.
 
-1. **Configure o Supabase** (banco de dados)
-2. **Teste todas as funcionalidades**
-3. **Treine a equipe**
-4. **Inicie o piloto controlado**
-5. **Monitore as métricas**
-6. **Ajuste os processos**
-7. **Expanda para toda a operação**
+## Antes do piloto físico
 
----
+Obrigatório homologar num projeto Supabase descartável/de teste:
 
-## 📊 Estatísticas do Projeto
+1. login real com admin, manager, operator e viewer;
+2. ativação e troca de papéis pela tela Usuários;
+3. recebimento parcial, retry e conclusão;
+4. reserva, picking completo/parcial/zero, cancelamento e despacho;
+5. movimentações manuais e conflito com estoque reservado;
+6. contagem com movimentação posterior ao instante físico;
+7. auditoria;
+8. scanner USB físico;
+9. câmera em Android via HTTPS;
+10. backup, restauração e rollback.
 
-- **Linhas de código:** ~15.000+
-- **Componentes React:** 15+
-- **Serviços Supabase:** 10+
-- **Hooks personalizados:** 10+
-- **Páginas:** 10
-- **Tabelas do banco:** 13
-- **Funções SQL:** 15+
-- **Plataformas suportadas:** 4 (PWA, Windows, Android, iOS)
+Use `PILOT_RUNBOOK.md` como checklist de homologação.
 
----
+## Instalação e distribuição
 
-**Desenvolvido com ❤️ para Casa Meta**
+Para o piloto, utilize o aplicativo **web** em navegador moderno. Consulte `INSTALL_GUIDE.md`.
 
-**Versão:** 1.0.0  
-**Licença:** Proprietária  
-**Suporte:** suporte@casameta.com
-
----
-
-## 🚀 Comece Agora!
-
-```bash
-# 1. Instalar
-npm install
-
-# 2. Configurar
-node scripts/quick-setup.js
-
-# 3. Executar
-npm run dev
-
-# 4. Acessar
-# http://localhost:3000
-```
-
-**Bom trabalho!** 🎉
+PWA/APK/EXE não são entregáveis desta etapa e não devem ser apresentados como prontos.

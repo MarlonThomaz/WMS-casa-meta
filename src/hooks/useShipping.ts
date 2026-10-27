@@ -1,5 +1,18 @@
-import { useState, useEffect } from 'react';
-import { Shipment, ShipmentWithLines, getShipments, getShipmentById, getShipmentsByStatus, getShipmentsByPriority, createShipment, addShipmentLine, startPicking, confirmPickedQuantity, confirmPacked, confirmShipped, cancelShipment } from '../services/shipping';
+import { useEffect, useState } from 'react';
+import {
+  Shipment,
+  ShipmentWithLines,
+  getShipments,
+  getShipmentById,
+  getShipmentsByStatus,
+  getShipmentsByPriority,
+  createShipmentWithLines,
+  startPicking,
+  confirmPickedQuantity,
+  confirmPacked,
+  confirmShipped,
+  cancelShipment,
+} from '../services/shipping';
 
 export function useShipments(filters?: {
   status?: Shipment['status'];
@@ -14,17 +27,16 @@ export function useShipments(filters?: {
     try {
       setLoading(true);
       setError(null);
-      
+
       let data: Shipment[];
-      
       if (filters?.status) {
-        data = await getShipmentsByStatus(filters.status);
+        data = await getShipmentsByStatus(filters.status, filters.limit || 100);
       } else if (filters?.priority) {
-        data = await getShipmentsByPriority(filters.priority);
+        data = await getShipmentsByPriority(filters.priority, filters.limit || 100);
       } else {
         data = await getShipments(filters?.limit || 100);
       }
-      
+
       setShipments(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar expedições');
@@ -35,18 +47,14 @@ export function useShipments(filters?: {
   };
 
   useEffect(() => {
-    loadShipments();
+    void loadShipments();
   }, [filters?.status, filters?.priority, filters?.limit]);
-
-  const refresh = async () => {
-    await loadShipments();
-  };
 
   return {
     shipments,
     loading,
     error,
-    refresh,
+    refresh: loadShipments,
   };
 }
 
@@ -64,8 +72,7 @@ export function useShipment(id: string | null) {
     try {
       setLoading(true);
       setError(null);
-      const data = await getShipmentById(id);
-      setShipment(data);
+      setShipment(await getShipmentById(id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar expedição');
       console.error('Erro ao carregar expedição:', err);
@@ -75,14 +82,10 @@ export function useShipment(id: string | null) {
   };
 
   useEffect(() => {
-    loadShipment();
+    void loadShipment();
   }, [id]);
 
-  const refresh = async () => {
-    await loadShipment();
-  };
-
-  return { shipment, loading, error, refresh };
+  return { shipment, loading, error, refresh: loadShipment };
 }
 
 export function useCreateShipment() {
@@ -95,12 +98,11 @@ export function useCreateShipment() {
     carrier?: string;
     priority?: Shipment['priority'];
     expected_date?: string;
-    operator_id?: string;
     notes?: string;
     lines: Array<{
       product_id: string;
       requested_quantity: number;
-      from_location_id?: string;
+      from_location_id: string;
       unit?: string;
       notes?: string;
     }>;
@@ -108,31 +110,7 @@ export function useCreateShipment() {
     try {
       setLoading(true);
       setError(null);
-      
-      // Criar expedição
-      const shipment = await createShipment({
-        customer_name: params.customer_name,
-        customer_reference: params.customer_reference,
-        carrier: params.carrier,
-        priority: params.priority,
-        expected_date: params.expected_date,
-        operator_id: params.operator_id,
-        notes: params.notes,
-      });
-
-      // Adicionar linhas
-      for (const line of params.lines) {
-        await addShipmentLine({
-          shipment_id: shipment.id,
-          product_id: line.product_id,
-          requested_quantity: line.requested_quantity,
-          from_location_id: line.from_location_id,
-          unit: line.unit,
-          notes: line.notes,
-        });
-      }
-
-      return shipment;
+      return await createShipmentWithLines(params);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao criar expedição';
       setError(errorMessage);
@@ -142,11 +120,7 @@ export function useCreateShipment() {
     }
   };
 
-  return {
-    createNewShipment,
-    loading,
-    error,
-  };
+  return { createNewShipment, loading, error };
 }
 
 export function useStartPicking() {
@@ -167,11 +141,7 @@ export function useStartPicking() {
     }
   };
 
-  return {
-    start,
-    loading,
-    error,
-  };
+  return { start, loading, error };
 }
 
 export function useConfirmPacked() {
@@ -192,11 +162,7 @@ export function useConfirmPacked() {
     }
   };
 
-  return {
-    confirm,
-    loading,
-    error,
-  };
+  return { confirm, loading, error };
 }
 
 export function useConfirmShipped() {
@@ -217,11 +183,7 @@ export function useConfirmShipped() {
     }
   };
 
-  return {
-    confirm,
-    loading,
-    error,
-  };
+  return { confirm, loading, error };
 }
 
 export function useCancelShipment() {
@@ -242,11 +204,7 @@ export function useCancelShipment() {
     }
   };
 
-  return {
-    cancel,
-    loading,
-    error,
-  };
+  return { cancel, loading, error };
 }
 
 export function useConfirmPickedQuantity() {
@@ -267,9 +225,5 @@ export function useConfirmPickedQuantity() {
     }
   };
 
-  return {
-    update,
-    loading,
-    error,
-  };
+  return { update, loading, error };
 }

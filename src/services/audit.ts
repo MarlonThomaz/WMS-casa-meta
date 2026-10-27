@@ -1,40 +1,37 @@
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { isDemoMode, isSupabaseConfigured, supabase } from '../lib/supabase';
+import type { DBAuditEvent } from '../types';
 
-export async function logAuditEvent(params: {
-  event_type: string;
-  entity_type: string;
-  entity_id?: string;
-  details?: any;
-}): Promise<void> {
-  if (!isSupabaseConfigured) {
-    console.log('Audit Event (demo):', params);
-    return;
-  }
-  
-  const { error } = await supabase.rpc('log_audit_event', {
-    p_event_type: params.event_type,
-    p_entity_type: params.entity_type,
-    p_entity_id: params.entity_id || null,
-    p_details: params.details || null,
-  });
+const demoAuditEvents: DBAuditEvent[] = [
+  {
+    id: 'demo-audit-1',
+    event_type: 'product_updated',
+    entity_type: 'product',
+    entity_id: 'demo-p1',
+    user_id: 'demo-user-id',
+    user_email: 'demo@casameta.local',
+    details: { demo: true, message: 'Evento fictício para demonstrar a tela de auditoria.' },
+    created_at: new Date().toISOString(),
+  },
+];
 
-  if (error) {
-    console.warn('Falha ao registrar evento de auditoria:', error.message);
-  }
+/**
+ * Eventos autoritativos são gerados pelo banco (RPCs/triggers).
+ * O navegador não possui permissão para fabricar eventos de auditoria.
+ */
+export async function logAuditEvent(): Promise<void> {
+  console.warn('logAuditEvent é legado: eventos autoritativos são gerados pelo banco.');
 }
 
-export async function getAuditEvents(limit = 100) {
+export async function getAuditEvents(limit = 200): Promise<DBAuditEvent[]> {
+  if (isDemoMode) return demoAuditEvents.map((event) => ({ ...event }));
   if (!isSupabaseConfigured) return [];
-  
+
   const { data, error } = await supabase
     .from('audit_events')
     .select('*')
     .order('created_at', { ascending: false })
     .limit(limit);
 
-  if (error) {
-    console.warn('Falha ao buscar eventos de auditoria:', error.message);
-    return [];
-  }
-  return data || [];
+  if (error) throw error;
+  return (data || []) as DBAuditEvent[];
 }

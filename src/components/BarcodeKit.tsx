@@ -1,554 +1,628 @@
-import { useState, useEffect, useRef } from 'react';
-import { QrCode, PackagePlus, ArrowLeftRight, MapPin } from 'lucide-react';
+import { FormEvent, useMemo, useState } from 'react';
+import {
+  AlertCircle,
+  ArrowLeftRight,
+  CheckCircle,
+  Loader2,
+  MapPin,
+  Package,
+  ScanLine,
+} from 'lucide-react';
 import BarcodeScanner from './BarcodeScanner';
-import { useBarcodeLookup, useBarcodeDetails } from '../hooks/useBarcodes';
+import { useAuth } from '../contexts/AuthContext';
+import { useLocations } from '../hooks/useLocations';
+import {
+  getProductDetailsByBarcode,
+  ProductBarcodeDetails,
+  registerProductWithBarcode,
+  validateBarcode,
+} from '../services/barcodes';
+import { createAndProcessMovement } from '../services/movements';
 
 type Mode = 'register' | 'transfer' | 'locate';
 
 export default function BarcodeKit() {
-  const [mode, setMode] = useState<Mode>('register');
-  const [lastScanned, setLastScanned] = useState<string>('');
-  const [scanHistory, setScanHistory] = useState<{ code: string; time: string; action: string }[]>([]);
+  const { user } = useAuth();
+  const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
+  const [mode, setMode] = useState<Mode>(canOperate ? 'register' : 'locate');
+  const [showScanner, setShowScanner] = useState(false);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [details, setDetails] = useState<ProductBarcodeDetails | null>(null);
+  const [scannedCode, setScannedCode] = useState('');
 
-  const handleScan = (code: string) => {
-    setLastScanned(code);
-    setScanHistory(prev => [
-      { code, time: new Date().toLocaleTimeString('pt-BR'), action: getActionLabel(mode) },
-      ...prev.slice(0, 19),
-    ]);
+  const selectMode = (next: Mode) => {
+    if (!canOperate && next !== 'locate') return;
+    setMode(next);
+    setDetails(null);
+    setScannedCode('');
+    setError(null);
+    setSuccess(null);
+    setShowScanner(false);
   };
 
-  const getActionLabel = (m: Mode) => {
-    switch (m) {
-      case 'register': return 'Cadastro SKU';
-      case 'transfer': return 'Transferência';
-      case 'locate': return 'Localização';
+  const handleScan = async (rawCode: string) => {
+    const code = rawCode.trim();
+    if (!code) return;
+
+    setScannedCode(code);
+    setShowScanner(false);
+    setError(null);
+    setSuccess(null);
+    setLookupLoading(true);
+
+    try {
+      const found = await getProductDetailsByBarcode(code);
+      setDetails(found);
+
+      if (mode === 'register') {
+        if (found) {
+          setError(`O código ${code} já pertence ao SKU ${found.sku}.`);
+        }
+      } else if (!found) {
+        setError(`Nenhum produto ativo encontrado para o código ${code}.`);
+      }
+    } catch (err) {
+      setDetails(null);
+      setError(err instanceof Error ? err.message : 'Erro ao consultar código');
+    } finally {
+      setLookupLoading(false);
     }
   };
 
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-          <QrCode className="w-7 h-7 text-blue-600" />
-          Kit Leitor de Código de Barras
-        </h1>
-        <p className="text-slate-500">Escaneie códigos para cadastro, transferência ou localização de estoque</p>
+        <h1 className="text-2xl font-bold text-slate-800">Código de barras</h1>
+        <p className="text-slate-500">
+          Cadastre SKUs, transfira estoque e localize produtos usando câmera ou entrada manual.
+        </p>
       </div>
 
-      {/* Mode Selector */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <button
-          onClick={() => setMode('register')}
-          className={`p-4 rounded-xl border-2 transition-all text-left ${
-            mode === 'register'
-              ? 'border-blue-500 bg-blue-50 shadow-md'
-              : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/50'
-          }`}
-        >
-          <div className="flex items-center gap-3 mb-2">
-            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-              mode === 'register' ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-600'
-            }`}>
-              <PackagePlus className="w-5 h-5" />
-            </div>
-            <h3 className="font-semibold text-slate-800">Cadastrar SKU</h3>
-          </div>
-          <p className="text-sm text-slate-500">
-            Escaneie um novo produto para iniciar o cadastro no sistema
-          </p>
-        </button>
-
-        <button
-          onClick={() => setMode('transfer')}
-          className={`p-4 rounded-xl border-2 transition-all text-left ${
-            mode === 'transfer'
-              ? 'border-purple-500 bg-purple-50 shadow-md'
-              : 'border-slate-200 bg-white hover:border-purple-200 hover:bg-purple-50/50'
-          }`}
-        >
-          <div className="flex items-center gap-3 mb-2">
-            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-              mode === 'transfer' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-600'
-            }`}>
-              <ArrowLeftRight className="w-5 h-5" />
-            </div>
-            <h3 className="font-semibold text-slate-800">Transferência</h3>
-          </div>
-          <p className="text-sm text-slate-500">
-            Escaneie produto e localizações para transferir itens entre endereços
-          </p>
-        </button>
-
-        <button
-          onClick={() => setMode('locate')}
-          className={`p-4 rounded-xl border-2 transition-all text-left ${
-            mode === 'locate'
-              ? 'border-green-500 bg-green-50 shadow-md'
-              : 'border-slate-200 bg-white hover:border-green-200 hover:bg-green-50/50'
-          }`}
-        >
-          <div className="flex items-center gap-3 mb-2">
-            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-              mode === 'locate' ? 'bg-green-600 text-white' : 'bg-green-100 text-green-600'
-            }`}>
-              <MapPin className="w-5 h-5" />
-            </div>
-            <h3 className="font-semibold text-slate-800">Localizar Estoque</h3>
-          </div>
-          <p className="text-sm text-slate-500">
-            Escaneie um produto para encontrar sua localização no armazém
-          </p>
-        </button>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <ModeButton
+          active={mode === 'register'}
+          disabled={!canOperate}
+          title="Cadastrar produto"
+          description="Produto + código + estoque inicial"
+          icon={<Package className="w-5 h-5" />}
+          onClick={() => selectMode('register')}
+        />
+        <ModeButton
+          active={mode === 'transfer'}
+          disabled={!canOperate}
+          title="Transferir"
+          description="Mover saldo entre endereços"
+          icon={<ArrowLeftRight className="w-5 h-5" />}
+          onClick={() => selectMode('transfer')}
+        />
+        <ModeButton
+          active={mode === 'locate'}
+          title="Localizar"
+          description="Consultar saldo por endereço"
+          icon={<MapPin className="w-5 h-5" />}
+          onClick={() => selectMode('locate')}
+        />
       </div>
 
-      {/* Content based on mode */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Scanner */}
-        <div>
-          <BarcodeScanner onScan={handleScan} />
-          
-          {/* Last scanned */}
-          {lastScanned && (
-            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-xl">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-sm font-medium text-green-800">Último código escaneado</span>
-              </div>
-              <p className="text-lg font-mono font-bold text-green-900">{lastScanned}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Mode-specific panel */}
-        <div>
-          {mode === 'register' && <RegisterPanel scannedCode={lastScanned} />}
-          {mode === 'transfer' && <TransferPanel scannedCode={lastScanned} />}
-          {mode === 'locate' && <LocatePanel scannedCode={lastScanned} />}
-        </div>
-      </div>
-
-      {/* Scan History */}
-      {scanHistory.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-          <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-semibold text-slate-800">Histórico de Escaneamentos</h3>
-            <button
-              onClick={() => setScanHistory([])}
-              className="text-xs text-slate-500 hover:text-red-600 transition-colors"
-            >
-              Limpar
-            </button>
-          </div>
-          <div className="max-h-60 overflow-y-auto">
-            <table className="w-full">
-              <thead className="sticky top-0 bg-slate-50">
-                <tr>
-                  <th className="text-left px-4 py-2 text-xs font-semibold text-slate-500 uppercase">Código</th>
-                  <th className="text-left px-4 py-2 text-xs font-semibold text-slate-500 uppercase">Ação</th>
-                  <th className="text-right px-4 py-2 text-xs font-semibold text-slate-500 uppercase">Hora</th>
-                </tr>
-              </thead>
-              <tbody>
-                {scanHistory.map((item, idx) => (
-                  <tr key={idx} className="border-t border-slate-50">
-                    <td className="px-4 py-2 font-mono text-sm text-slate-700">{item.code}</td>
-                    <td className="px-4 py-2 text-sm text-slate-600">{item.action}</td>
-                    <td className="px-4 py-2 text-sm text-slate-500 text-right">{item.time}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ==================== REGISTER PANEL ====================
-function RegisterPanel({ scannedCode }: { scannedCode: string }) {
-  const { product, loading, error, lookupBarcode, clear } = useBarcodeLookup();
-  const [formData, setFormData] = useState({
-    sku: '',
-    name: '',
-    category: '',
-    quantity: 0,
-    location: '',
-    minStock: 0,
-    maxStock: 100,
-  });
-  const [saved, setSaved] = useState(false);
-  const lastScannedRef = useRef<string>('');
-
-  // Auto-lookup when scanned
-  useEffect(() => {
-    if (scannedCode && scannedCode !== lastScannedRef.current) {
-      lastScannedRef.current = scannedCode;
-      lookupBarcode(scannedCode);
-      setFormData(prev => ({ ...prev, sku: scannedCode }));
-    }
-  }, [scannedCode]);
-
-  const handleSave = () => {
-    // Aqui você integraria com o serviço de produtos
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
-  };
-
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <PackagePlus className="w-5 h-5 text-blue-600" />
-        <h3 className="font-semibold text-slate-800">Cadastro de Novo SKU</h3>
-      </div>
-
-      {loading && (
-        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-700">Buscando produto...</p>
+      {!canOperate && (
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+          Seu perfil é somente leitura. Cadastro e transferência ficam disponíveis para operador, gerente e administrador.
         </div>
       )}
 
-      {error && (
-        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-          <p className="text-sm text-amber-700">Produto não encontrado. Cadastre um novo.</p>
+      <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-slate-800">Código atual</h2>
+            <p className="text-sm text-slate-500">
+              {scannedCode || 'Nenhum código lido.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowScanner((value) => !value)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <ScanLine className="w-4 h-4" />
+            {showScanner ? 'Fechar scanner' : 'Escanear código'}
+          </button>
         </div>
-      )}
 
-      {product && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-          <p className="text-sm font-medium text-green-800">Produto encontrado!</p>
-          <p className="text-xs text-green-700 mt-1">
-            <strong>{product.name}</strong> - SKU: {product.sku}
-          </p>
-        </div>
-      )}
-
-      <div className="space-y-3">
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Código de Barras / SKU</label>
-          <input
-            type="text"
-            value={formData.sku}
-            onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono focus:ring-2 focus:ring-blue-500 outline-none"
-            placeholder="Escaneie ou digite o código"
+        {showScanner && (
+          <BarcodeScanner
+            onScan={(code) => void handleScan(code)}
+            onClose={() => setShowScanner(false)}
           />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Nome do Produto</label>
-          <input
-            type="text"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            placeholder="Nome do produto"
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Categoria</label>
-            <input
-              type="text"
-              value={formData.category}
-              onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="Ex: Eletrônicos"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Quantidade Inicial</label>
-            <input
-              type="number"
-              value={formData.quantity}
-              onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            />
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Localização</label>
-            <input
-              type="text"
-              value={formData.location}
-              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="A-01-01-01"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Estoque Mín.</label>
-            <input
-              type="number"
-              value={formData.minStock}
-              onChange={(e) => setFormData({ ...formData, minStock: Number(e.target.value) })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Estoque Máx.</label>
-            <input
-              type="number"
-              value={formData.maxStock}
-              onChange={(e) => setFormData({ ...formData, maxStock: Number(e.target.value) })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            />
-          </div>
-        </div>
+        )}
 
-        <button
-          onClick={handleSave}
-          disabled={!formData.sku || !formData.name}
-          className="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Cadastrar Produto
-        </button>
+        {lookupLoading && (
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Loader2 className="w-4 h-4 animate-spin" /> Consultando cadastro e estoque...
+          </div>
+        )}
 
-        {saved && (
-          <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-            <p className="text-sm text-green-700">Produto cadastrado com sucesso!</p>
+        {error && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex gap-2">
+            <AlertCircle className="w-5 h-5 shrink-0" />
+            {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 flex gap-2">
+            <CheckCircle className="w-5 h-5 shrink-0" />
+            {success}
           </div>
         )}
       </div>
+
+      {mode === 'register' && canOperate && (
+        <RegisterPanel
+          barcode={scannedCode}
+          existing={details}
+          onRegistered={async (barcode, message) => {
+            setSuccess(message);
+            setError(null);
+            const refreshed = await getProductDetailsByBarcode(barcode);
+            setDetails(refreshed);
+          }}
+        />
+      )}
+
+      {mode === 'transfer' && canOperate && (
+        <TransferPanel
+          details={details}
+          onTransferred={async (barcode, message) => {
+            setSuccess(message);
+            setError(null);
+            const refreshed = await getProductDetailsByBarcode(barcode);
+            setDetails(refreshed);
+          }}
+        />
+      )}
+
+      {mode === 'locate' && <LocatePanel details={details} />}
     </div>
   );
 }
 
-// ==================== TRANSFER PANEL ====================
-function TransferPanel({ scannedCode }: { scannedCode: string }) {
-  const { product, loading, error, lookupBarcode } = useBarcodeLookup();
-  const [productCode, setProductCode] = useState('');
+function RegisterPanel({
+  barcode,
+  existing,
+  onRegistered,
+}: {
+  barcode: string;
+  existing: ProductBarcodeDetails | null;
+  onRegistered: (barcode: string, message: string) => Promise<void>;
+}) {
+  const { locations } = useLocations();
+  const [sku, setSku] = useState('');
+  const [name, setName] = useState('');
+  const [category, setCategory] = useState('');
+  const [unit, setUnit] = useState('un');
+  const [minStock, setMinStock] = useState('0');
+  const [maxStock, setMaxStock] = useState('');
+  const [packagingType, setPackagingType] = useState('unit');
+  const [quantityPerPackage, setQuantityPerPackage] = useState('1');
+  const [initialQuantity, setInitialQuantity] = useState('0');
+  const [initialLocation, setInitialLocation] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const usableLocations = locations.filter(
+    (location) => location.status !== 'blocked' && location.status !== 'maintenance'
+  );
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setFormError(null);
+
+    const normalizedBarcode = barcode.trim();
+    const barcodeValidation = validateBarcode(normalizedBarcode);
+    const min = Number(minStock);
+    const max = maxStock.trim() === '' ? undefined : Number(maxStock);
+    const factor = Number(quantityPerPackage);
+    const initial = Number(initialQuantity);
+
+    if (!normalizedBarcode) {
+      setFormError('Escaneie ou digite o código antes de cadastrar.');
+      return;
+    }
+    if (existing) {
+      setFormError(`Este código já pertence ao SKU ${existing.sku}.`);
+      return;
+    }
+    if (!barcodeValidation.valid) {
+      setFormError('Código inválido.');
+      return;
+    }
+    if (!sku.trim() || !name.trim()) {
+      setFormError('SKU e nome são obrigatórios.');
+      return;
+    }
+    if (!Number.isFinite(min) || min < 0) {
+      setFormError('Estoque mínimo inválido.');
+      return;
+    }
+    if (max !== undefined && (!Number.isFinite(max) || max < min)) {
+      setFormError('Estoque máximo precisa ser maior ou igual ao mínimo.');
+      return;
+    }
+    if (!Number.isFinite(factor) || factor <= 0) {
+      setFormError('Quantidade por embalagem precisa ser maior que zero.');
+      return;
+    }
+    if (!Number.isFinite(initial) || initial < 0) {
+      setFormError('Estoque inicial inválido.');
+      return;
+    }
+    if (initial > 0 && !initialLocation) {
+      setFormError('Selecione a localização do estoque inicial.');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await registerProductWithBarcode({
+        sku: sku.trim(),
+        name: name.trim(),
+        category: category.trim() || undefined,
+        unit_base: unit.trim() || 'un',
+        min_stock: min,
+        max_stock: max,
+        barcode: normalizedBarcode,
+        barcode_type: barcodeValidation.type,
+        packaging_type: packagingType,
+        quantity_per_package: factor,
+        initial_location_id: initial > 0 ? initialLocation : undefined,
+        initial_quantity: initial,
+      });
+
+      await onRegistered(
+        normalizedBarcode,
+        initial > 0
+          ? `Produto ${sku.trim()} cadastrado e estoque inicial lançado.`
+          : `Produto ${sku.trim()} cadastrado com sucesso.`
+      );
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Erro ao cadastrar produto');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!barcode) {
+    return <EmptyAction text="Escaneie um código novo para iniciar o cadastro." />;
+  }
+
+  if (existing) {
+    return (
+      <div className="bg-white border border-amber-200 rounded-xl p-5">
+        <div className="font-semibold text-slate-800">Código já cadastrado</div>
+        <div className="text-sm text-slate-600 mt-1">
+          {existing.sku} — {existing.name} · saldo total {existing.total_stock}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-slate-200 p-5 space-y-5">
+      <div>
+        <h2 className="text-lg font-semibold text-slate-800">Cadastrar produto pelo código</h2>
+        <p className="text-sm text-slate-500 font-mono mt-1">{barcode}</p>
+      </div>
+
+      {formError && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {formError}
+        </div>
+      )}
+
+      <div className="grid md:grid-cols-3 gap-4">
+        <Field label="SKU">
+          <input required value={sku} onChange={(e) => setSku(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+        </Field>
+        <Field label="Nome">
+          <input required value={name} onChange={(e) => setName(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+        </Field>
+        <Field label="Categoria">
+          <input value={category} onChange={(e) => setCategory(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+        </Field>
+        <Field label="Unidade base">
+          <input value={unit} onChange={(e) => setUnit(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+        </Field>
+        <Field label="Estoque mínimo">
+          <input type="number" min={0} step="any" value={minStock} onChange={(e) => setMinStock(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+        </Field>
+        <Field label="Estoque máximo">
+          <input type="number" min={0} step="any" value={maxStock} onChange={(e) => setMaxStock(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+        </Field>
+        <Field label="Tipo da embalagem">
+          <select value={packagingType} onChange={(e) => setPackagingType(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white">
+            <option value="unit">Unidade</option>
+            <option value="box">Caixa</option>
+            <option value="pack">Pacote</option>
+            <option value="pallet">Pallet</option>
+          </select>
+        </Field>
+        <Field label="Unidades por embalagem">
+          <input type="number" min={0.000001} step="any" value={quantityPerPackage} onChange={(e) => setQuantityPerPackage(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+        </Field>
+        <Field label="Estoque inicial (unidade base)">
+          <input type="number" min={0} step="any" value={initialQuantity} onChange={(e) => setInitialQuantity(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+        </Field>
+      </div>
+
+      {Number(initialQuantity) > 0 && (
+        <Field label="Localização do estoque inicial">
+          <select required value={initialLocation} onChange={(e) => setInitialLocation(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white">
+            <option value="">Selecione</option>
+            {usableLocations.map((location) => (
+              <option key={location.id} value={location.id}>{location.code} — Zona {location.zone}</option>
+            ))}
+          </select>
+        </Field>
+      )}
+
+      <div className="flex justify-end">
+        <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50">
+          {saving ? 'Cadastrando...' : 'Cadastrar produto'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function TransferPanel({
+  details,
+  onTransferred,
+}: {
+  details: ProductBarcodeDetails | null;
+  onTransferred: (barcode: string, message: string) => Promise<void>;
+}) {
+  const { locations } = useLocations();
   const [fromLocation, setFromLocation] = useState('');
   const [toLocation, setToLocation] = useState('');
-  const [quantity, setQuantity] = useState(1);
-  const [transferred, setTransferred] = useState(false);
-  const lastScannedRef = useRef<string>('');
+  const [quantity, setQuantity] = useState('1');
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  // Auto-lookup when scanned
-  useEffect(() => {
-    if (scannedCode && scannedCode !== lastScannedRef.current) {
-      lastScannedRef.current = scannedCode;
-      lookupBarcode(scannedCode);
-      setProductCode(scannedCode);
+  const sourceOptions = details?.stock_by_location.filter((stock) => stock.available_quantity > 0) || [];
+  const source = sourceOptions.find((stock) => stock.location_id === fromLocation);
+  const destinations = locations.filter(
+    (location) =>
+      location.id !== fromLocation &&
+      location.status !== 'blocked' &&
+      location.status !== 'maintenance'
+  );
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setFormError(null);
+
+    if (!details) {
+      setFormError('Escaneie um produto cadastrado.');
+      return;
     }
-  }, [scannedCode]);
 
-  const handleTransfer = () => {
-    // Aqui você integraria com o serviço de movimentações
-    setTransferred(true);
-    setTimeout(() => setTransferred(false), 3000);
+    const qty = Number(quantity);
+    if (!fromLocation || !toLocation) {
+      setFormError('Selecione origem e destino.');
+      return;
+    }
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setFormError('Quantidade precisa ser maior que zero.');
+      return;
+    }
+    if (!source || qty > source.available_quantity) {
+      setFormError(`Saldo disponível insuficiente. Disponível: ${source?.available_quantity ?? 0}.`);
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await createAndProcessMovement({
+        movement_type: 'transfer',
+        source_reference: `BARCODE:${details.barcode}`,
+        notes: `Transferência via scanner do SKU ${details.sku}`,
+        lines: [
+          {
+            product_id: details.product_id,
+            from_location_id: fromLocation,
+            to_location_id: toLocation,
+            quantity: qty,
+            unit: 'un',
+            notes: 'Transferência pelo kit de código de barras',
+          },
+        ],
+      });
+
+      setFromLocation('');
+      setToLocation('');
+      setQuantity('1');
+      await onTransferred(details.barcode, `Transferência de ${qty} unidade(s) concluída.`);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Erro ao transferir estoque');
+    } finally {
+      setSaving(false);
+    }
   };
 
+  if (!details) {
+    return <EmptyAction text="Escaneie um produto cadastrado para transferir estoque." />;
+  }
+
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <ArrowLeftRight className="w-5 h-5 text-purple-600" />
-        <h3 className="font-semibold text-slate-800">Transferência de Itens</h3>
+    <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-slate-200 p-5 space-y-5">
+      <ProductHeader details={details} />
+
+      {formError && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {formError}
+        </div>
+      )}
+
+      <div className="grid md:grid-cols-3 gap-4">
+        <Field label="Origem">
+          <select value={fromLocation} onChange={(e) => { setFromLocation(e.target.value); setToLocation(''); }} className="w-full border rounded-lg px-3 py-2 bg-white" required>
+            <option value="">Selecione</option>
+            {sourceOptions.map((stock) => (
+              <option key={stock.location_id} value={stock.location_id}>
+                {stock.location_code} — disponível {stock.available_quantity}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Destino">
+          <select value={toLocation} onChange={(e) => setToLocation(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white" required>
+            <option value="">Selecione</option>
+            {destinations.map((location) => (
+              <option key={location.id} value={location.id}>{location.code} — Zona {location.zone}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Quantidade (unidade base)">
+          <input type="number" min={0.000001} step="any" max={source?.available_quantity} value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full border rounded-lg px-3 py-2" required />
+        </Field>
       </div>
 
-      <div className="space-y-3">
-        {/* Product */}
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            1. Escaneie o Produto
-          </label>
-          <input
-            type="text"
-            value={productCode}
-            onChange={(e) => {
-              setProductCode(e.target.value);
-              lookupBarcode(e.target.value);
-            }}
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono focus:ring-2 focus:ring-purple-500 outline-none"
-            placeholder="Código do produto"
-          />
-        </div>
-
-        {/* Found product info */}
-        {loading && (
-          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm text-blue-700">Buscando produto...</p>
-          </div>
-        )}
-
-        {product && (
-          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm font-medium text-blue-800">{product.name}</p>
-            <div className="flex gap-4 mt-1 text-xs text-blue-700">
-              <span>SKU: {product.sku}</span>
-              <span>Estoque: {product.quantity_per_package}</span>
-            </div>
-          </div>
-        )}
-
-        {!product && productCode && !loading && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-700">Produto não encontrado no sistema</p>
-          </div>
-        )}
-
-        {/* From Location */}
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            2. Localização de Origem
-          </label>
-          <input
-            type="text"
-            value={fromLocation}
-            onChange={(e) => setFromLocation(e.target.value)}
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono focus:ring-2 focus:ring-purple-500 outline-none"
-            placeholder="Ex: A-01-03-02"
-          />
-        </div>
-
-        {/* To Location */}
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            3. Localização de Destino
-          </label>
-          <input
-            type="text"
-            value={toLocation}
-            onChange={(e) => setToLocation(e.target.value)}
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono focus:ring-2 focus:ring-purple-500 outline-none"
-            placeholder="Escaneie ou digite o endereço de destino"
-          />
-        </div>
-
-        {/* Quantity */}
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            4. Quantidade
-          </label>
-          <input
-            type="number"
-            min={1}
-            value={quantity}
-            onChange={(e) => setQuantity(Number(e.target.value))}
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
-          />
-        </div>
-
-        <button
-          onClick={handleTransfer}
-          disabled={!productCode || !fromLocation || !toLocation || fromLocation === toLocation}
-          className="w-full py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Confirmar Transferência
+      <div className="flex justify-end">
+        <button type="submit" disabled={saving || sourceOptions.length === 0} className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50">
+          {saving ? 'Transferindo...' : 'Confirmar transferência'}
         </button>
+      </div>
+    </form>
+  );
+}
 
-        {transferred && (
-          <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-            <p className="text-sm text-green-700">
-              Transferência de {quantity} unidade(s) de <strong>{fromLocation}</strong> para <strong>{toLocation}</strong> registrada!
-            </p>
-          </div>
-        )}
+function LocatePanel({ details }: { details: ProductBarcodeDetails | null }) {
+  if (!details) {
+    return <EmptyAction text="Escaneie um produto cadastrado para consultar onde ele está." />;
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-5">
+      <ProductHeader details={details} />
+
+      <div className="grid sm:grid-cols-3 gap-3">
+        <Metric label="Saldo total" value={details.total_stock} />
+        <Metric
+          label="Reservado"
+          value={details.stock_by_location.reduce((sum, item) => sum + item.reserved_quantity, 0)}
+        />
+        <Metric
+          label="Disponível"
+          value={details.stock_by_location.reduce((sum, item) => sum + item.available_quantity, 0)}
+        />
+      </div>
+
+      <div className="border border-slate-200 rounded-lg overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+            <tr>
+              <th className="px-4 py-3 text-left">Localização</th>
+              <th className="px-4 py-3 text-right">Físico</th>
+              <th className="px-4 py-3 text-right">Reservado</th>
+              <th className="px-4 py-3 text-right">Disponível</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {details.stock_by_location.map((stock) => (
+              <tr key={stock.location_id}>
+                <td className="px-4 py-3 font-mono text-sm">{stock.location_code}</td>
+                <td className="px-4 py-3 text-sm text-right">{stock.quantity}</td>
+                <td className="px-4 py-3 text-sm text-right">{stock.reserved_quantity}</td>
+                <td className="px-4 py-3 text-sm text-right font-semibold">{stock.available_quantity}</td>
+              </tr>
+            ))}
+            {details.stock_by_location.length === 0 && (
+              <tr>
+                <td colSpan={4} className="p-8 text-center text-slate-400">Produto sem saldo em localização.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
 
-// ==================== LOCATE PANEL ====================
-function LocatePanel({ scannedCode }: { scannedCode: string }) {
-  const { details, loading, error, lookupDetails } = useBarcodeDetails();
-  const [searchCode, setSearchCode] = useState('');
-  const [searched, setSearched] = useState(false);
-  const lastScannedRef = useRef<string>('');
-
-  // Auto-locate when scanned
-  useEffect(() => {
-    if (scannedCode && scannedCode !== lastScannedRef.current) {
-      lastScannedRef.current = scannedCode;
-      lookupDetails(scannedCode);
-      setSearchCode(scannedCode);
-      setSearched(true);
-    }
-  }, [scannedCode]);
-
-  const handleLocate = () => {
-    lookupDetails(searchCode);
-    setSearched(true);
-  };
-
+function ProductHeader({ details }: { details: ProductBarcodeDetails }) {
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <MapPin className="w-5 h-5 text-green-600" />
-        <h3 className="font-semibold text-slate-800">Localização de Estoque</h3>
-      </div>
-
-      <div className="space-y-3">
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            Escaneie ou digite o código do produto
-          </label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={searchCode}
-              onChange={(e) => setSearchCode(e.target.value)}
-              className="flex-1 px-3 py-2 border border-slate-200 rounded-lg font-mono focus:ring-2 focus:ring-green-500 outline-none"
-              placeholder="Código de barras ou SKU"
-            />
-            <button
-              onClick={handleLocate}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
-            >
-              Buscar
-            </button>
-          </div>
+    <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div>
+        <div className="text-xs font-mono text-slate-500">{details.sku}</div>
+        <h2 className="text-xl font-bold text-slate-800">{details.name}</h2>
+        <div className="text-sm text-slate-500 mt-1">
+          Código {details.barcode} · embalagem {details.packaging_type} · fator {details.quantity_per_package}
         </div>
-
-        {loading && (
-          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm text-blue-700">Buscando produto...</p>
-          </div>
-        )}
-
-        {searched && !details && !loading && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm font-medium text-red-800">Produto não encontrado</p>
-            <p className="text-xs text-red-700 mt-1">
-              O código "{searchCode}" não está cadastrado no sistema.
-            </p>
-          </div>
-        )}
-
-        {details && (
-          <div className="space-y-3">
-            {/* Product info */}
-            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-              <h4 className="font-semibold text-green-900">{details.name}</h4>
-              <div className="grid grid-cols-2 gap-2 mt-2 text-sm">
-                <div>
-                  <span className="text-green-600">SKU:</span>
-                  <span className="ml-1 font-mono text-green-900">{details.sku}</span>
-                </div>
-                <div>
-                  <span className="text-green-600">Estoque Total:</span>
-                  <span className="ml-1 font-bold text-green-900">{details.total_stock}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Stock by location */}
-            {details.stock_by_location && details.stock_by_location.length > 0 && (
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <h4 className="font-semibold text-blue-900 mb-2">Estoque por Localização</h4>
-                <div className="space-y-2">
-                  {details.stock_by_location.map((loc: any, idx: number) => (
-                    <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-lg">
-                      <span className="font-mono text-sm text-blue-900">{loc.location_code}</span>
-                      <span className="font-bold text-blue-900">{loc.quantity} un</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
       </div>
+      <div className="text-right">
+        <div className="text-xs text-slate-500">Saldo total</div>
+        <div className="text-2xl font-bold text-slate-800">{details.total_stock}</div>
+      </div>
+    </div>
+  );
+}
+
+function ModeButton({
+  active,
+  disabled,
+  title,
+  description,
+  icon,
+  onClick,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`p-4 rounded-xl border text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+        active
+          ? 'border-blue-500 bg-blue-50 text-blue-800'
+          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+      }`}
+    >
+      <div className="flex items-center gap-2 font-semibold">{icon}{title}</div>
+      <div className="text-xs mt-1 opacity-75">{description}</div>
+    </button>
+  );
+}
+
+function EmptyAction({ text }: { text: string }) {
+  return (
+    <div className="bg-white rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500">
+      <ScanLine className="w-8 h-8 mx-auto mb-3 text-slate-400" />
+      {text}
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block text-sm">
+      <span className="block font-medium text-slate-700 mb-1">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="bg-slate-50 rounded-lg p-4">
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className="text-xl font-bold text-slate-800 mt-1">{value}</div>
     </div>
   );
 }

@@ -1,28 +1,21 @@
 import { useAuth } from '../contexts/AuthContext';
-import { LogIn, UserPlus, Loader2, AlertCircle } from 'lucide-react';
+import { AlertCircle, Loader2, LogIn } from 'lucide-react';
 import { useState } from 'react';
 
 export default function Login() {
-  const { signIn, signUp, isDemo } = useAuth();
-  const [isSignUp, setIsSignUp] = useState(false);
+  const { signIn, isDemo } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setError(null);
-    setLoading(true);
 
     try {
-      if (isSignUp) {
-        if (!fullName.trim()) throw new Error('Nome completo é obrigatório');
-        await signUp(email, password, fullName);
-      } else {
-        await signIn(email, password);
-      }
+      setLoading(true);
+      await signIn(email, password);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro de autenticação');
     } finally {
@@ -43,15 +36,15 @@ export default function Login() {
           <p className="text-slate-300">Sistema de Gerenciamento de Armazém</p>
           {isDemo && (
             <div className="mt-3 inline-block px-3 py-1 bg-amber-500/20 border border-amber-400/50 rounded-full">
-              <p className="text-xs text-amber-200">⚠️ Modo Demonstração</p>
+              <p className="text-xs text-amber-200">Modo demonstração explícito</p>
             </div>
           )}
         </div>
 
         <div className="bg-white rounded-2xl shadow-2xl p-8">
           <div className="flex items-center justify-center mb-6">
-            {isSignUp ? <UserPlus className="w-6 h-6 text-blue-600 mr-2" /> : <LogIn className="w-6 h-6 text-blue-600 mr-2" />}
-            <h2 className="text-2xl font-bold text-slate-800">{isSignUp ? 'Criar Conta' : 'Entrar'}</h2>
+            <LogIn className="w-6 h-6 text-blue-600 mr-2" />
+            <h2 className="text-2xl font-bold text-slate-800">Entrar</h2>
           </div>
 
           {error && (
@@ -61,70 +54,57 @@ export default function Login() {
             </div>
           )}
 
-          {isDemo && (
+          {isDemo ? (
             <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800 font-medium mb-1">🎯 Modo Demonstração</p>
+              <p className="text-sm text-blue-800 font-medium mb-1">Modo demonstração</p>
               <p className="text-xs text-blue-700">
-                Digite qualquer email e senha para entrar. Os dados são de demonstração.
+                Digite qualquer email e senha para entrar. Nenhuma regra real de estoque é validada neste modo.
+              </p>
+            </div>
+          ) : (
+            <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+              <p className="text-xs text-slate-600">
+                As contas do WMS são provisionadas pela administração. Não há cadastro público de operadores.
               </p>
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {isSignUp && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
-                <input
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                  placeholder="Seu nome completo"
-                  required={isSignUp}
-                />
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+            <label className="block">
+              <span className="block text-sm font-medium text-slate-700 mb-1">Email</span>
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(event) => setEmail(event.target.value)}
                 className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 placeholder="seu@email.com"
+                autoComplete="username"
                 required
               />
-            </div>
+            </label>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Senha</label>
+            <label className="block">
+              <span className="block text-sm font-medium text-slate-700 mb-1">Senha</span>
               <input
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(event) => setPassword(event.target.value)}
                 className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 placeholder="••••••••"
+                autoComplete="current-password"
                 required
-                minLength={6}
               />
-            </div>
+            </label>
 
             <button
               type="submit"
               disabled={loading}
               className="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : isSignUp ? <UserPlus className="w-5 h-5" /> : <LogIn className="w-5 h-5" />}
-              {loading ? (isSignUp ? 'Criando...' : 'Entrando...') : isSignUp ? 'Criar Conta' : 'Entrar'}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogIn className="w-5 h-5" />}
+              {loading ? 'Entrando...' : 'Entrar'}
             </button>
           </form>
-
-          <div className="mt-6 text-center">
-            <button onClick={() => { setIsSignUp(!isSignUp); setError(null); }} className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-              {isSignUp ? 'Já tem uma conta? Entrar' : 'Não tem uma conta? Criar conta'}
-            </button>
-          </div>
         </div>
       </div>
     </div>

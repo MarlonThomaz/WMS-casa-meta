@@ -1,4 +1,5 @@
-import { supabase } from '../lib/supabase';
+import { supabase, isDemoMode } from '../lib/supabase';
+import { demoLocations, demoMovements, demoProducts, demoReceipts, demoShipments } from '../demoStore';
 
 export type DashboardStats = {
   totalProducts: number;
@@ -10,221 +11,155 @@ export type DashboardStats = {
   pendingShipments: number;
 };
 
-export type CategoryStock = {
-  category: string;
-  total_quantity: number;
-};
+export type CategoryStock = { category: string; total_quantity: number };
+export type ZoneOccupancy = { zone: string; total_capacity: number; total_occupied: number; occupancy_percentage: number };
+export type MovementSummary = { date: string; inbound: number; outbound: number };
 
-export type ZoneOccupancy = {
-  zone: string;
-  total_capacity: number;
-  total_occupied: number;
-  occupancy_percentage: number;
-};
-
-export type MovementSummary = {
-  date: string;
-  inbound: number;
-  outbound: number;
-};
-
-// Buscar estatísticas gerais do dashboard
 export async function getDashboardStats(): Promise<DashboardStats> {
-  try {
-    // Total de produtos ativos
-    const { count: productsCount, error: productsError } = await supabase
-      .from('products')
-      .select('*', { count: 'exact', head: true })
-      .eq('active', true);
-
-    if (productsError) throw productsError;
-
-    // Estoque total
-    const { data: stockData, error: stockError } = await supabase
-      .from('stock_balances')
-      .select('quantity');
-
-    if (stockError) throw stockError;
-    const totalStock = stockData?.reduce((sum: number, b: any) => sum + b.quantity, 0) || 0;
-
-    // Localizações
-    const { data: locations, error: locationsError } = await supabase
-      .from('locations')
-      .select('status');
-
-    if (locationsError) throw locationsError;
-
-    const occupiedLocations = locations?.filter((l: any) => l.status === 'occupied').length || 0;
-    const totalLocations = locations?.length || 0;
-
-    // Recebimentos pendentes
-    const { count: pendingReceipts, error: receiptsError } = await supabase
-      .from('receipts')
-      .select('*', { count: 'exact', head: true })
-      .in('status', ['pending', 'partial']);
-
-    if (receiptsError) throw receiptsError;
-
-    // Expedições pendentes
-    const { count: pendingShipments, error: shipmentsError } = await supabase
-      .from('shipments')
-      .select('*', { count: 'exact', head: true })
-      .in('status', ['pending', 'picking']);
-
-    if (shipmentsError) throw shipmentsError;
-
+  if (isDemoMode) {
+    const active = demoProducts.filter((p) => p.active);
     return {
-      totalProducts: productsCount || 0,
-      totalStock,
-      lowStockProducts: 0, // Simplificado por enquanto
-      occupiedLocations,
-      totalLocations,
-      pendingReceipts: pendingReceipts || 0,
-      pendingShipments: pendingShipments || 0,
+      totalProducts: active.length,
+      totalStock: active.reduce((sum, p) => sum + p.total_stock, 0),
+      lowStockProducts: active.filter((p) => p.total_stock <= p.min_stock).length,
+      occupiedLocations: demoLocations.filter((l) => l.status === 'occupied').length,
+      totalLocations: demoLocations.length,
+      pendingReceipts: demoReceipts.filter((r) => r.status === 'pending' || r.status === 'partial').length,
+      pendingShipments: demoShipments.filter((s) => s.status === 'pending' || s.status === 'picking').length,
     };
-  } catch (error) {
-    console.error('Erro ao buscar estatísticas do dashboard:', error);
-    throw error;
   }
+
+  const { data: productsWithStock, error: productsError } = await supabase.rpc('get_products_with_stock');
+  if (productsError) throw productsError;
+
+  const products = (productsWithStock || []) as Array<{ total_stock: number; min_stock: number }>;
+  const totalProducts = products.length;
+  const totalStock = products.reduce((sum, product) => sum + Number(product.total_stock || 0), 0);
+  const lowStockProducts = products.filter(
+    (product) => Number(product.total_stock || 0) <= Number(product.min_stock || 0)
+  ).length;
+
+  const { data: locations, error: locationsError } = await supabase.from('locations').select('status');
+  if (locationsError) throw locationsError;
+
+  const { count: pendingReceipts, error: receiptsError } = await supabase
+    .from('receipts').select('*', { count: 'exact', head: true }).in('status', ['pending', 'partial']);
+  if (receiptsError) throw receiptsError;
+
+  const { count: pendingShipments, error: shipmentsError } = await supabase
+    .from('shipments').select('*', { count: 'exact', head: true }).in('status', ['pending', 'picking']);
+  if (shipmentsError) throw shipmentsError;
+
+  return {
+    totalProducts,
+    totalStock,
+    lowStockProducts,
+    occupiedLocations: locations?.filter((l: any) => l.status === 'occupied').length || 0,
+    totalLocations: locations?.length || 0,
+    pendingReceipts: pendingReceipts || 0,
+    pendingShipments: pendingShipments || 0,
+  };
 }
 
-// Buscar estoque por categoria
 export async function getStockByCategory(): Promise<CategoryStock[]> {
-  try {
-    const { data: balances, error: balancesError } = await supabase
-      .from('stock_balances')
-      .select('product_id, quantity');
-
-    if (balancesError) throw balancesError;
-
-    const { data: products, error: productsError } = await supabase
-      .from('products')
-      .select('id, category')
-      .eq('active', true);
-
-    if (productsError) throw productsError;
-
-    // Agrupar por categoria
-    const categoryMap: Record<string, number> = {};
-    
-    balances?.forEach((balance: any) => {
-      const product = products?.find((p: any) => p.id === balance.product_id);
-      if (product) {
-        const category = product.category || 'Sem Categoria';
-        categoryMap[category] = (categoryMap[category] || 0) + balance.quantity;
-      }
+  if (isDemoMode) {
+    const grouped = new Map<string, number>();
+    demoProducts.filter((p) => p.active).forEach((p) => {
+      const category = p.category || 'Sem Categoria';
+      grouped.set(category, (grouped.get(category) || 0) + p.total_stock);
     });
-
-    // Converter para array
-    return Object.entries(categoryMap).map(([category, total_quantity]) => ({
-      category,
-      total_quantity,
-    }));
-  } catch (error) {
-    console.error('Erro ao buscar estoque por categoria:', error);
-    throw error;
+    return [...grouped.entries()].map(([category, total_quantity]) => ({ category, total_quantity }));
   }
+
+  const { data: balances, error: balancesError } = await supabase.from('stock_balances').select('product_id, quantity');
+  if (balancesError) throw balancesError;
+  const { data: products, error: productsError } = await supabase.from('products').select('id, category').eq('active', true);
+  if (productsError) throw productsError;
+
+  const categoryMap: Record<string, number> = {};
+  balances?.forEach((balance: any) => {
+    const product = products?.find((p: any) => p.id === balance.product_id);
+    if (!product) return;
+    const category = product.category || 'Sem Categoria';
+    categoryMap[category] = (categoryMap[category] || 0) + Number(balance.quantity || 0);
+  });
+  return Object.entries(categoryMap).map(([category, total_quantity]) => ({ category, total_quantity }));
 }
 
-// Buscar ocupação por zona
 export async function getZoneOccupancy(): Promise<ZoneOccupancy[]> {
-  try {
-    const { data: locations, error: locationsError } = await supabase
-      .from('locations')
-      .select('id, zone, capacity');
-
-    if (locationsError) throw locationsError;
-
-    const { data: balances, error: balancesError } = await supabase
-      .from('stock_balances')
-      .select('location_id, quantity');
-
-    if (balancesError) throw balancesError;
-
-    // Mapear location_id para zone
-    const locationZoneMap: Record<string, string> = {};
-    
-    locations?.forEach((loc: any) => {
-      locationZoneMap[loc.id] = loc.zone;
+  if (isDemoMode) {
+    const grouped = new Map<string, { capacity: number; occupied: number }>();
+    demoLocations.forEach((l) => {
+      const current = grouped.get(l.zone) || { capacity: 0, occupied: 0 };
+      current.capacity += l.capacity || 0;
+      current.occupied += l.total_quantity;
+      grouped.set(l.zone, current);
     });
-
-    // Agrupar por zona
-    const zoneMap: Record<string, { capacity: number; occupied: number }> = {};
-    
-    locations?.forEach((loc: any) => {
-      if (!zoneMap[loc.zone]) {
-        zoneMap[loc.zone] = { capacity: 0, occupied: 0 };
-      }
-      zoneMap[loc.zone].capacity += loc.capacity || 0;
-    });
-
-    balances?.forEach((balance: any) => {
-      const zone = locationZoneMap[balance.location_id];
-      if (zone && zoneMap[zone]) {
-        zoneMap[zone].occupied += balance.quantity;
-      }
-    });
-
-    // Converter para array
-    return Object.entries(zoneMap).map(([zone, data]) => ({
+    return [...grouped.entries()].map(([zone, value]) => ({
       zone,
-      total_capacity: data.capacity,
-      total_occupied: data.occupied,
-      occupancy_percentage: data.capacity > 0 ? (data.occupied / data.capacity) * 100 : 0,
+      total_capacity: value.capacity,
+      total_occupied: value.occupied,
+      occupancy_percentage: value.capacity > 0 ? (value.occupied / value.capacity) * 100 : 0,
     }));
-  } catch (error) {
-    console.error('Erro ao buscar ocupação por zona:', error);
-    throw error;
   }
+
+  const { data: locations, error: locationsError } = await supabase.from('locations').select('id, zone, capacity');
+  if (locationsError) throw locationsError;
+  const { data: balances, error: balancesError } = await supabase.from('stock_balances').select('location_id, quantity');
+  if (balancesError) throw balancesError;
+
+  const locationZoneMap: Record<string, string> = {};
+  const zoneMap: Record<string, { capacity: number; occupied: number }> = {};
+  locations?.forEach((loc: any) => {
+    locationZoneMap[loc.id] = loc.zone;
+    zoneMap[loc.zone] ||= { capacity: 0, occupied: 0 };
+    zoneMap[loc.zone].capacity += Number(loc.capacity || 0);
+  });
+  balances?.forEach((balance: any) => {
+    const zone = locationZoneMap[balance.location_id];
+    if (zone && zoneMap[zone]) zoneMap[zone].occupied += Number(balance.quantity || 0);
+  });
+  return Object.entries(zoneMap).map(([zone, value]) => ({
+    zone,
+    total_capacity: value.capacity,
+    total_occupied: value.occupied,
+    occupancy_percentage: value.capacity > 0 ? (value.occupied / value.capacity) * 100 : 0,
+  }));
 }
 
-// Buscar resumo de movimentações dos últimos 7 dias
 export async function getMovementSummary(): Promise<MovementSummary[]> {
-  try {
+  const dailyMap: Record<string, { inbound: number; outbound: number }> = {};
+  for (let i = 6; i >= 0; i--) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    dailyMap[date.toISOString().split('T')[0]] = { inbound: 0, outbound: 0 };
+  }
+
+  if (isDemoMode) {
+    demoMovements.filter((m) => m.status === 'completed').forEach((m) => {
+      const date = m.created_at.slice(0, 10);
+      if (!dailyMap[date]) return;
+      if (m.movement_type === 'inbound') dailyMap[date].inbound++;
+      if (m.movement_type === 'outbound') dailyMap[date].outbound++;
+    });
+  } else {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
     const { data: movements, error } = await supabase
       .from('movements')
       .select('movement_type, created_at')
       .gte('created_at', sevenDaysAgo.toISOString())
       .eq('status', 'completed');
-
     if (error) throw error;
-
-    // Agrupar por data
-    const dailyMap: Record<string, { inbound: number; outbound: number }> = {};
-
-    // Inicializar últimos 7 dias
-    for (let i = 0; i < 7; i++) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      dailyMap[dateStr] = { inbound: 0, outbound: 0 };
-    }
-
-    // Contar movimentações
     movements?.forEach((m: any) => {
-      const dateStr = m.created_at.split('T')[0];
-      if (dailyMap[dateStr]) {
-        if (m.movement_type === 'inbound') {
-          dailyMap[dateStr].inbound++;
-        } else if (m.movement_type === 'outbound') {
-          dailyMap[dateStr].outbound++;
-        }
-      }
+      const date = m.created_at.slice(0, 10);
+      if (!dailyMap[date]) return;
+      if (m.movement_type === 'inbound') dailyMap[date].inbound++;
+      if (m.movement_type === 'outbound') dailyMap[date].outbound++;
     });
-
-    // Converter para array ordenado
-    return Object.entries(dailyMap)
-      .map(([date, data]) => ({
-        date,
-        inbound: data.inbound,
-        outbound: data.outbound,
-      }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-  } catch (error) {
-    console.error('Erro ao buscar resumo de movimentações:', error);
-    throw error;
   }
+
+  return Object.entries(dailyMap)
+    .map(([date, value]) => ({ date, ...value }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }

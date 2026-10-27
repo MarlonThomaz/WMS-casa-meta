@@ -1,5 +1,13 @@
-import { useState, useEffect } from 'react';
-import { Movement, MovementWithLines, getMovements, getMovementById, getMovementsByType, getMovementsByStatus, createAndProcessMovement } from '../services/movements';
+import { useEffect, useState } from 'react';
+import {
+  Movement,
+  MovementWithLines,
+  createAndProcessMovement,
+  getMovementById,
+  getMovements,
+  getMovementsByStatus,
+  getMovementsByType,
+} from '../services/movements';
 
 export function useMovements(filters?: {
   type?: Movement['movement_type'];
@@ -14,17 +22,16 @@ export function useMovements(filters?: {
     try {
       setLoading(true);
       setError(null);
-      
+
       let data: Movement[];
-      
       if (filters?.type) {
-        data = await getMovementsByType(filters.type);
+        data = await getMovementsByType(filters.type, filters.limit || 100);
       } else if (filters?.status) {
-        data = await getMovementsByStatus(filters.status);
+        data = await getMovementsByStatus(filters.status, filters.limit || 100);
       } else {
         data = await getMovements(filters?.limit || 100);
       }
-      
+
       setMovements(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar movimentações');
@@ -35,19 +42,10 @@ export function useMovements(filters?: {
   };
 
   useEffect(() => {
-    loadMovements();
+    void loadMovements();
   }, [filters?.type, filters?.status, filters?.limit]);
 
-  const refresh = async () => {
-    await loadMovements();
-  };
-
-  return {
-    movements,
-    loading,
-    error,
-    refresh,
-  };
+  return { movements, loading, error, refresh: loadMovements };
 }
 
 export function useMovement(id: string | null) {
@@ -55,30 +53,29 @@ export function useMovement(id: string | null) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadMovement = async () => {
     if (!id) {
       setMovement(null);
       return;
     }
 
-    const loadMovement = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await getMovementById(id);
-        setMovement(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro ao carregar movimentação');
-        console.error('Erro ao carregar movimentação:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
+    try {
+      setLoading(true);
+      setError(null);
+      setMovement(await getMovementById(id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao carregar movimentação');
+      console.error('Erro ao carregar movimentação:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    loadMovement();
+  useEffect(() => {
+    void loadMovement();
   }, [id]);
 
-  return { movement, loading, error };
+  return { movement, loading, error, refresh: loadMovement };
 }
 
 export function useCreateMovement() {
@@ -86,8 +83,7 @@ export function useCreateMovement() {
   const [error, setError] = useState<string | null>(null);
 
   const createMovement = async (params: {
-    movement_type: Movement['movement_type'];
-    operator_id?: string;
+    movement_type: Exclude<Movement['movement_type'], 'count'>;
     source_reference?: string;
     notes?: string;
     lines: Array<{
@@ -102,8 +98,7 @@ export function useCreateMovement() {
     try {
       setLoading(true);
       setError(null);
-      const result = await createAndProcessMovement(params);
-      return result;
+      return await createAndProcessMovement(params);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao criar movimentação';
       setError(errorMessage);
@@ -113,9 +108,5 @@ export function useCreateMovement() {
     }
   };
 
-  return {
-    createMovement,
-    loading,
-    error,
-  };
+  return { createMovement, loading, error };
 }

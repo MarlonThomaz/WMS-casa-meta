@@ -1,70 +1,79 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { Role } from '../types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabasePublishableKey =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Flag para verificar se o Supabase está configurado
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
+export const isDemoMode = !isSupabaseConfigured && import.meta.env.VITE_ENABLE_DEMO === 'true';
 
-// Criar cliente apenas se configurado
 let supabaseClient: SupabaseClient;
 
 if (isSupabaseConfigured) {
-  supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+  supabaseClient = createClient(supabaseUrl, supabasePublishableKey, {
     auth: {
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: true,
     },
   });
-  console.log('✅ Supabase configurado com sucesso');
 } else {
-  // Cliente dummy para modo demonstração
-  // IMPORTANTE: Este cliente NÃO deve ser usado para operações críticas
-  // O AuthContext deve verificar isSupabaseConfigured antes de usar
-  supabaseClient = createClient(
-    'https://demo.supabase.co',
-    'demo-key',
-    { auth: { persistSession: false } }
-  );
-  console.warn('⚠️ Supabase não configurado. Rodando em modo demonstração.');
-  console.warn('⚠️ Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no arquivo .env');
+  // Cliente inerte somente para manter a aplicação inicializável.
+  // Nenhum service deve executar operações quando isSupabaseConfigured=false.
+  supabaseClient = createClient('https://demo.invalid', 'demo-key', {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  if (isDemoMode) {
+    console.warn('WMS iniciado em modo demonstração explícito (VITE_ENABLE_DEMO=true).');
+  } else {
+    console.error(
+      'Supabase não configurado. Defina VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY (ou VITE_SUPABASE_ANON_KEY legado).'
+    );
+  }
 }
 
 export const supabase = supabaseClient;
 
-// Tipos auxiliares para autenticação
 export type User = {
   id: string;
   email: string;
   full_name?: string;
-  role?: string;
+  role?: Role;
 };
 
-// Função auxiliar para verificar se o usuário está autenticado
 export async function getCurrentUser(): Promise<User | null> {
   if (!isSupabaseConfigured) return null;
-  
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) return null;
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id, email, full_name, role')
-      .eq('id', user.id)
-      .single();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
 
-    return profile;
-  } catch (error) {
-    console.error('Erro ao buscar usuário atual:', error);
-    return null;
-  }
+  if (authError) throw authError;
+  if (!user) return null;
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('id, email, full_name, role, active')
+    .eq('id', user.id)
+    .eq('active', true)
+    .single();
+
+  if (profileError) throw profileError;
+  if (!profile) return null;
+
+  return {
+    id: profile.id,
+    email: profile.email,
+    full_name: profile.full_name || undefined,
+    role: profile.role as Role,
+  };
 }
 
-// Função auxiliar para logout
 export async function signOut() {
   if (!isSupabaseConfigured) return;
-  await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
 }
