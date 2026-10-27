@@ -1,39 +1,34 @@
 # WMS Casa Meta
 
-Sistema web de gerenciamento de armazém para a operação da Casa Meta, desenvolvido com React, TypeScript, Vite, Tailwind CSS, Supabase e PostgreSQL.
+Sistema web de gerenciamento de armazém para a operação da Casa Meta, desenvolvido com React, TypeScript, Vite, Supabase e PostgreSQL.
 
 ## Estado do projeto
 
-O projeto está em **estabilização para piloto web controlado**. Não deve ser tratado como produto concluído nem implantado em produção sem validar os fluxos operacionais no ambiente Supabase de teste.
+O projeto está em **estabilização para piloto web controlado**. O núcleo transacional já cobre os fluxos principais do MVP, mas a versão ainda deve ser homologada em um projeto Supabase de teste real antes de qualquer uso em produção.
 
-## Demo isolada
-
-Abra a branch de estabilização no StackBlitz:
-
-```text
-https://stackblitz.com/github/MarlonThomaz/WMS-casa-meta/tree/wms-stabilization-round8?startScript=dev
-```
-
-A demo roda sem credenciais e sem acesso ao banco real. Ela usa dados fictícios em memória para produtos, localizações, recebimento, expedição, movimentações, scanner e contagem física. Uma faixa amarela identifica o ambiente; alterações são temporárias e resetam ao recarregar.
-
-A branch passou TypeScript, build de produção, migrations e regressões transacionais/RLS após a implementação do modo demo.
-
-Um workflow `Demo Pages` também está preparado para publicação no GitHub Pages. Ele permanece manual até Pages ser habilitado em **Settings > Pages > Build and deployment > GitHub Actions**.
+A branch de estabilização é `wms-stabilization-round8` e o trabalho entra na `main` somente por pull request após CI e homologação.
 
 ## Escopo atual
 
-A versão web em estabilização cobre:
+A versão web cobre:
 
-- autenticação e perfis;
+- autenticação com Supabase Auth;
+- papéis `admin`, `manager`, `operator` e `viewer`;
+- administração de perfis e ativação de usuários;
 - produtos e códigos de barras;
 - endereçamento/localizações;
-- saldo e movimentações de estoque;
-- recebimento;
-- expedição;
-- contagem física;
-- auditoria e permissões por papel.
+- saldo e reserva de estoque;
+- recebimento parcial e idempotente;
+- expedição, reserva, picking parcial, packing e shipping;
+- entradas, saídas, transferências e ajustes manuais;
+- contagem física com snapshot e reconciliação;
+- auditoria de operações e catálogo;
+- scanner por câmera, arquivo, entrada manual e leitor USB HID;
+- dashboard operacional e dashboard do piloto.
 
-PWA, Electron/Windows, Android e iOS não fazem parte do critério de pronto desta fase.
+## Fora do critério de pronto desta fase
+
+PWA instalável, Electron/Windows, Capacitor/Android, iOS, operação offline e sincronização offline ficam para uma etapa posterior ao piloto web.
 
 ## Stack
 
@@ -44,22 +39,19 @@ PWA, Electron/Windows, Android e iOS não fazem parte do critério de pronto des
 - Supabase Auth
 - PostgreSQL / Supabase
 - Row Level Security (RLS)
+- GitHub Actions
 
-## Requisitos
+## Desenvolvimento local
 
-- Node.js 22 recomendado para reproduzir a CI atual;
-- npm;
-- um projeto Supabase de teste;
-- URL e anon key do Supabase para o modo real.
-
-## Configuração local
+Recomendado: Node.js 22.
 
 ```bash
-npm install
+npm ci
 cp .env.example .env
+npm run dev
 ```
 
-Preencha o `.env` para um backend real:
+Para backend real de homologação:
 
 ```env
 VITE_SUPABASE_URL=https://seu-projeto.supabase.co
@@ -67,106 +59,91 @@ VITE_SUPABASE_ANON_KEY=sua-chave-anon-aqui
 VITE_ENABLE_DEMO=false
 ```
 
-Para usar somente a demonstração local:
+Para demonstração isolada, sem credenciais e sem persistência real:
 
 ```env
 VITE_ENABLE_DEMO=true
 ```
 
-Nunca use o modo demo para validar regras reais de autorização ou persistência.
+Nunca coloque `service_role`, secret key ou qualquer chave privilegiada em variável `VITE_*`.
 
-## Banco de dados
-
-As migrations ficam em `supabase/migrations` e devem ser aplicadas em ordem numérica.
-
-A CI cria um PostgreSQL isolado, prepara uma compatibilidade mínima com o namespace `auth` do Supabase e aplica toda a cadeia de migrations do zero. Isso detecta SQL inválido, versões duplicadas e dependências quebradas entre migrations.
-
-Antes do piloto, a mesma cadeia deve ser validada em um **projeto Supabase de teste real**, porque Supabase Auth/PostgREST não é reproduzido integralmente pelo PostgreSQL genérico da CI.
-
-## Desenvolvimento
-
-```bash
-npm run dev
-```
-
-## Checks obrigatórios
+## Checks locais
 
 ```bash
 npm run typecheck
 npm run build
 ```
 
-A pull request também executa GitHub Actions para TypeScript, build de produção, verificação de migrations, aplicação integral em PostgreSQL isolado e regressões transacionais/RLS.
+## Banco de dados
 
-Um build verde não substitui testes de comportamento do estoque.
+As migrations ficam em `supabase/migrations` e são aplicadas em ordem numérica. A cadeia atual inclui a migration `017_pilot_inventory_integrity.sql`, que reforça integridade de reservas, estoque disponível, picking parcial e reconciliação de contagem.
+
+A CI aplica todas as migrations do zero em PostgreSQL isolado e executa regressões de:
+
+- recebimento parcial e retry idempotente;
+- autorização e RLS;
+- picking parcial e linha separada com quantidade zero;
+- cancelamento e liberação de reservas;
+- proteção contra consumo de estoque reservado;
+- preservação de movimentos posteriores à contagem física;
+- cadastro atômico de produto + código de barras + estoque inicial.
+
+A CI não reproduz integralmente Supabase Auth/PostgREST. Por isso, **CI verde não substitui homologação em Supabase real**.
 
 ## Regras de arquitetura
 
 ### Autoridade no banco
 
-O navegador não é fonte confiável para `created_by`. O banco deriva a autoria do usuário autenticado. Operações que alteram estoque devem preferir RPCs transacionais.
+O navegador não é fonte confiável para autoria, saldo, reservas ou eventos de auditoria. Operações críticas passam por RPCs/triggers e o banco deriva o usuário a partir da sessão autenticada.
 
 ### Estoque
 
-Alterações físicas de saldo devem passar pelas funções transacionais do banco. `stock_balances` não deve ser alterado diretamente pelo cliente.
-
-### RLS
-
-Os papéis atuais são `admin`, `manager`, `operator` e `viewer`. Um perfil com `active = false` não recebe papel operacional por `user_role()`.
-
-### Operações finalizadas
-
-Linhas de recebimentos, expedições e contagens finalizadas são tratadas como histórico e não devem ser reescritas pela aplicação.
-
-## Fluxos em estabilização
+`stock_balances` não deve ser alterado diretamente pelo cliente. Saídas, transferências e ajustes negativos usam estoque **disponível**, sem consumir quantidade reservada para expedições.
 
 ### Recebimento
 
-- criação de cabeçalho e linhas em uma única transação;
-- conferência de quantidade recebida;
-- processamento incremental/idempotente por `processed_quantity`;
-- status `partial` e `completed` derivados do estado real das linhas.
+`processed_quantity` é interno ao banco. Reprocessar um recebimento parcial não duplica saldo: somente o delta ainda não contabilizado é aplicado.
 
 ### Expedição
 
-- criação atômica de cabeçalho e linhas;
-- reserva de estoque;
-- picking;
-- liberação de reserva não utilizada;
-- packing e shipping.
+Ao iniciar picking, a quantidade solicitada é reservada. Ao confirmar o picking, a quantidade realmente separada vira saída física e toda reserva não utilizada é liberada, inclusive linhas com `picked_quantity = 0`.
 
-### Movimentações
+### Contagem
 
-- entrada;
-- saída;
-- transferência;
-- ajuste;
-- criação e processamento em uma única RPC.
+A contagem possui snapshot do sistema e instante físico de contagem. Na conclusão, movimentos legítimos posteriores ao instante contado são preservados; a reconciliação não deve apagar operações que ocorreram depois da contagem física.
 
-### Contagem física
+### RLS e papéis
 
-- snapshot do saldo do sistema;
-- quantidade contada;
-- ajuste transacional;
-- preservação de movimentações legítimas ocorridas após o snapshot.
+- `admin`: operação completa, usuários e auditoria;
+- `manager`: operação completa, endereços e auditoria;
+- `operator`: fluxos operacionais permitidos;
+- `viewer`: somente leitura.
 
-## Antes do piloto
+Uma conta criada no Supabase Auth nasce como `viewer` e `active = false`. O admin ativa e define o papel pela tela **Usuários**.
 
-Ainda é necessário concluir e registrar, no ambiente Supabase de teste:
+### Auditoria
 
-1. autenticação real com usuários `admin`, `manager`, `operator` e `viewer`;
-2. regressões de autorização/RLS usando JWTs reais;
+Eventos autoritativos são gravados por funções e triggers do banco. O navegador consulta a auditoria, mas não pode fabricar eventos diretamente.
+
+## Antes do piloto físico
+
+Obrigatório homologar num projeto Supabase descartável/de teste:
+
+1. login real com admin, manager, operator e viewer;
+2. ativação e troca de papéis pela tela Usuários;
 3. recebimento parcial, retry e conclusão;
-4. reserva, picking parcial, cancelamento e expedição;
-5. concorrência de estoque/contagem;
-6. scanner em navegador móvel com HTTPS;
-7. criação e edição de produtos/localizações;
-8. restauração/backup e procedimento de rollback.
+4. reserva, picking completo/parcial/zero, cancelamento e despacho;
+5. movimentações manuais e conflito com estoque reservado;
+6. contagem com movimentação posterior ao instante físico;
+7. auditoria;
+8. scanner USB físico;
+9. câmera em Android via HTTPS;
+10. backup, restauração e rollback.
 
-## Git workflow
+Use `PILOT_RUNBOOK.md` como checklist de homologação.
 
-Mudanças estruturais entram por branch e pull request. Não faça merge apenas porque o frontend compilou: verifique também migrations e testes funcionais.
+## Instalação e distribuição
 
-## Escopo futuro
+Para o piloto, utilize o aplicativo **web** em navegador moderno. Consulte `INSTALL_GUIDE.md`.
 
-Após o piloto web estar estável, podem ser retomados separadamente PWA, Electron/Windows, Capacitor/Android, iOS, offline/sincronização e distribuição de executáveis.
+PWA/APK/EXE não são entregáveis desta etapa e não devem ser apresentados como prontos.
