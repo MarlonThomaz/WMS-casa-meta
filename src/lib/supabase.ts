@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { Role } from '../types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -38,7 +39,7 @@ export type User = {
   id: string;
   email: string;
   full_name?: string;
-  role?: string;
+  role?: Role;
 };
 
 export async function getCurrentUser(): Promise<User | null> {
@@ -60,7 +61,14 @@ export async function getCurrentUser(): Promise<User | null> {
     .single();
 
   if (profileError) throw profileError;
-  return profile;
+  if (!profile) return null;
+
+  return {
+    id: profile.id,
+    email: profile.email,
+    full_name: profile.full_name || undefined,
+    role: profile.role as Role,
+  };
 }
 
 export async function signOut() {
