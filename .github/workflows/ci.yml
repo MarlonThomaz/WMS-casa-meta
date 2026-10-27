@@ -45,7 +45,7 @@ jobs:
             ci-typecheck.log
             ci-build.log
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 7
 
       - name: Upload normalized package lock
         if: always()
@@ -54,7 +54,7 @@ jobs:
           name: normalized-package-lock
           path: package-lock.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
 
   migrations-static:
     runs-on: ubuntu-latest
@@ -179,6 +179,12 @@ jobs:
             IF to_regprocedure('public.reserve_stock_for_shipment(uuid)') IS NULL THEN
               RAISE EXCEPTION 'reserve_stock_for_shipment missing';
             END IF;
+            IF to_regprocedure('public.release_shipment_reservations(uuid)') IS NULL THEN
+              RAISE EXCEPTION 'release_shipment_reservations missing';
+            END IF;
+            IF to_regprocedure('public.confirm_shipment_picked(uuid)') IS NULL THEN
+              RAISE EXCEPTION 'confirm_shipment_picked missing';
+            END IF;
             IF to_regprocedure('public.process_stock_count_adjustments(uuid)') IS NULL THEN
               RAISE EXCEPTION 'process_stock_count_adjustments missing';
             END IF;
@@ -193,6 +199,9 @@ jobs:
             END IF;
             IF to_regprocedure('public.create_stock_count_with_snapshot(text,uuid,text)') IS NULL THEN
               RAISE EXCEPTION 'create_stock_count_with_snapshot missing';
+            END IF;
+            IF to_regprocedure('public.register_product_with_barcode(text,text,text,text,text,numeric,numeric,text,text,text,numeric,uuid,numeric)') IS NULL THEN
+              RAISE EXCEPTION 'register_product_with_barcode missing';
             END IF;
           END $$;
           SQL
@@ -225,6 +234,18 @@ jobs:
       - name: Execute core transactional regressions
         shell: bash
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/regression_tests_round8_core.sql
+
+      - name: Execute shipping regressions
+        shell: bash
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/regression_tests_round8_shipping.sql
+
+      - name: Execute stock and count regressions
+        shell: bash
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/regression_tests_round8_stock_count.sql
+
+      - name: Execute barcode registration regressions
+        shell: bash
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/barcode_registration_round8.sql
 
       - name: Prepare authenticated grants for RLS simulation
         shell: bash
