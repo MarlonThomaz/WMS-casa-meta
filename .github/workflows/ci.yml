@@ -7,6 +7,9 @@ on:
       - wms-stabilization-round8
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   web:
     runs-on: ubuntu-latest
@@ -22,6 +25,21 @@ jobs:
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+
+      - name: Normalize package lock on stabilization branch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/wms-stabilization-round8'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- package-lock.json; then
+            echo 'package-lock.json already normalized'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package-lock.json
+          git commit -m 'chore: normalize package lock'
+          git push origin HEAD:wms-stabilization-round8
 
       - name: TypeScript
         shell: bash
@@ -173,36 +191,16 @@ jobs:
           psql -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           BEGIN
-            IF to_regprocedure('public.process_receipt_atomically(uuid)') IS NULL THEN
-              RAISE EXCEPTION 'process_receipt_atomically missing';
-            END IF;
-            IF to_regprocedure('public.reserve_stock_for_shipment(uuid)') IS NULL THEN
-              RAISE EXCEPTION 'reserve_stock_for_shipment missing';
-            END IF;
-            IF to_regprocedure('public.release_shipment_reservations(uuid)') IS NULL THEN
-              RAISE EXCEPTION 'release_shipment_reservations missing';
-            END IF;
-            IF to_regprocedure('public.confirm_shipment_picked(uuid)') IS NULL THEN
-              RAISE EXCEPTION 'confirm_shipment_picked missing';
-            END IF;
-            IF to_regprocedure('public.process_stock_count_adjustments(uuid)') IS NULL THEN
-              RAISE EXCEPTION 'process_stock_count_adjustments missing';
-            END IF;
-            IF to_regprocedure('public.create_receipt_with_lines(text,text,date,text,text,jsonb)') IS NULL THEN
-              RAISE EXCEPTION 'create_receipt_with_lines missing';
-            END IF;
-            IF to_regprocedure('public.create_shipment_with_lines(text,text,text,text,date,text,jsonb)') IS NULL THEN
-              RAISE EXCEPTION 'create_shipment_with_lines missing';
-            END IF;
-            IF to_regprocedure('public.create_and_process_movement(text,text,text,jsonb)') IS NULL THEN
-              RAISE EXCEPTION 'create_and_process_movement missing';
-            END IF;
-            IF to_regprocedure('public.create_stock_count_with_snapshot(text,uuid,text)') IS NULL THEN
-              RAISE EXCEPTION 'create_stock_count_with_snapshot missing';
-            END IF;
-            IF to_regprocedure('public.register_product_with_barcode(text,text,text,text,text,numeric,numeric,text,text,text,numeric,uuid,numeric)') IS NULL THEN
-              RAISE EXCEPTION 'register_product_with_barcode missing';
-            END IF;
+            IF to_regprocedure('public.process_receipt_atomically(uuid)') IS NULL THEN RAISE EXCEPTION 'process_receipt_atomically missing'; END IF;
+            IF to_regprocedure('public.reserve_stock_for_shipment(uuid)') IS NULL THEN RAISE EXCEPTION 'reserve_stock_for_shipment missing'; END IF;
+            IF to_regprocedure('public.release_shipment_reservations(uuid)') IS NULL THEN RAISE EXCEPTION 'release_shipment_reservations missing'; END IF;
+            IF to_regprocedure('public.confirm_shipment_picked(uuid)') IS NULL THEN RAISE EXCEPTION 'confirm_shipment_picked missing'; END IF;
+            IF to_regprocedure('public.process_stock_count_adjustments(uuid)') IS NULL THEN RAISE EXCEPTION 'process_stock_count_adjustments missing'; END IF;
+            IF to_regprocedure('public.create_receipt_with_lines(text,text,date,text,text,jsonb)') IS NULL THEN RAISE EXCEPTION 'create_receipt_with_lines missing'; END IF;
+            IF to_regprocedure('public.create_shipment_with_lines(text,text,text,text,date,text,jsonb)') IS NULL THEN RAISE EXCEPTION 'create_shipment_with_lines missing'; END IF;
+            IF to_regprocedure('public.create_and_process_movement(text,text,text,jsonb)') IS NULL THEN RAISE EXCEPTION 'create_and_process_movement missing'; END IF;
+            IF to_regprocedure('public.create_stock_count_with_snapshot(text,uuid,text)') IS NULL THEN RAISE EXCEPTION 'create_stock_count_with_snapshot missing'; END IF;
+            IF to_regprocedure('public.register_product_with_barcode(text,text,text,text,text,numeric,numeric,text,text,text,numeric,uuid,numeric)') IS NULL THEN RAISE EXCEPTION 'register_product_with_barcode missing'; END IF;
           END $$;
           SQL
 
@@ -219,16 +217,11 @@ jobs:
             ('10000000-0000-0000-0000-000000000005', 'manager@round8.test', '{}'::jsonb, 'authenticated', 'authenticated');
 
           SELECT set_config('request.jwt.claims', '{"role":"service_role"}', false);
-          UPDATE public.profiles SET role = 'admin', active = true
-           WHERE id = '10000000-0000-0000-0000-000000000001';
-          UPDATE public.profiles SET role = 'operator', active = true
-           WHERE id = '10000000-0000-0000-0000-000000000002';
-          UPDATE public.profiles SET role = 'viewer', active = true
-           WHERE id = '10000000-0000-0000-0000-000000000003';
-          UPDATE public.profiles SET role = 'operator', active = false
-           WHERE id = '10000000-0000-0000-0000-000000000004';
-          UPDATE public.profiles SET role = 'manager', active = true
-           WHERE id = '10000000-0000-0000-0000-000000000005';
+          UPDATE public.profiles SET role = 'admin', active = true WHERE id = '10000000-0000-0000-0000-000000000001';
+          UPDATE public.profiles SET role = 'operator', active = true WHERE id = '10000000-0000-0000-0000-000000000002';
+          UPDATE public.profiles SET role = 'viewer', active = true WHERE id = '10000000-0000-0000-0000-000000000003';
+          UPDATE public.profiles SET role = 'operator', active = false WHERE id = '10000000-0000-0000-0000-000000000004';
+          UPDATE public.profiles SET role = 'manager', active = true WHERE id = '10000000-0000-0000-0000-000000000005';
           SQL
 
       - name: Execute core transactional regressions

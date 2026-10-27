@@ -29,13 +29,15 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     };
   }
 
-  const { count: productsCount, error: productsError } = await supabase
-    .from('products').select('*', { count: 'exact', head: true }).eq('active', true);
+  const { data: productsWithStock, error: productsError } = await supabase.rpc('get_products_with_stock');
   if (productsError) throw productsError;
 
-  const { data: stockData, error: stockError } = await supabase.from('stock_balances').select('quantity');
-  if (stockError) throw stockError;
-  const totalStock = stockData?.reduce((sum: number, b: any) => sum + Number(b.quantity || 0), 0) || 0;
+  const products = (productsWithStock || []) as Array<{ total_stock: number; min_stock: number }>;
+  const totalProducts = products.length;
+  const totalStock = products.reduce((sum, product) => sum + Number(product.total_stock || 0), 0);
+  const lowStockProducts = products.filter(
+    (product) => Number(product.total_stock || 0) <= Number(product.min_stock || 0)
+  ).length;
 
   const { data: locations, error: locationsError } = await supabase.from('locations').select('status');
   if (locationsError) throw locationsError;
@@ -49,9 +51,9 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   if (shipmentsError) throw shipmentsError;
 
   return {
-    totalProducts: productsCount || 0,
+    totalProducts,
     totalStock,
-    lowStockProducts: 0,
+    lowStockProducts,
     occupiedLocations: locations?.filter((l: any) => l.status === 'occupied').length || 0,
     totalLocations: locations?.length || 0,
     pendingReceipts: pendingReceipts || 0,
@@ -157,5 +159,7 @@ export async function getMovementSummary(): Promise<MovementSummary[]> {
     });
   }
 
-  return Object.entries(dailyMap).map(([date, value]) => ({ date, ...value })).sort((a, b) => a.date.localeCompare(b.date));
+  return Object.entries(dailyMap)
+    .map(([date, value]) => ({ date, ...value }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
