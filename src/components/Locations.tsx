@@ -63,8 +63,8 @@ export default function Locations() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between gap-4">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Localizações</h1>
           <p className="text-slate-500">
@@ -306,7 +306,7 @@ function LocationModal({
               <input value={level} onChange={(e) => setLevel(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
             </Field>
             <Field label="Capacidade">
-              <input type="number" min={0} step="any" value={capacity} onChange={(e) => setCapacity(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+              <input type="number" inputMode="decimal" min={0} step="any" value={capacity} onChange={(e) => setCapacity(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
             </Field>
             <Field label="Tipo">
               <select value={locationType} onChange={(e) => setLocationType(e.target.value as DBLocation['location_type'])} className="w-full border rounded-lg px-3 py-2 bg-white">

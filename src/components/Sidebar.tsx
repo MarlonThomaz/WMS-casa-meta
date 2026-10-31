@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import {
   ArrowLeftRight,
@@ -14,10 +15,13 @@ import {
   Truck,
   Users,
   Warehouse,
+  X,
 } from 'lucide-react';
 import type { Page, Role } from '../types';
 
 interface SidebarProps {
+  open: boolean;
+  onClose: () => void;
   currentPage: Page;
   onPageChange: (page: Page) => void;
 }
@@ -44,14 +48,42 @@ const menuItems: MenuItem[] = [
   { id: 'help', label: 'Ajuda', icon: HelpCircle },
 ];
 
-export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
+export default function Sidebar({ currentPage, onPageChange, open, onClose }: SidebarProps) {
+  const panelRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const oldOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const panel = panelRef.current;
+    panel?.querySelector<HTMLButtonElement>('button')?.focus();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+      if (event.key !== 'Tab' || !panel) return;
+      const buttons = Array.from(panel.querySelectorAll<HTMLButtonElement>('button:not([disabled])'));
+      const first = buttons[0];
+      const last = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.body.style.overflow = oldOverflow;
+      document.removeEventListener('keydown', handleKey);
+      previous?.focus();
+    };
+  }, [open, onClose]);
   const { user, signOut, isDemo } = useAuth();
   const visibleItems = menuItems.filter(
     (item) => !item.roles || (user?.role ? item.roles.includes(user.role) : false)
   );
 
   return (
-    <aside className="w-64 bg-slate-900 text-white flex flex-col min-h-screen shrink-0">
+    <>
+    {open && <button type="button" className="fixed inset-0 z-40 bg-slate-950/60 lg:hidden" aria-label="Fechar menu" onClick={onClose} />}
+    <aside ref={panelRef} id="wms-navigation" aria-label="Menu principal"
+      className={`${open ? 'flex' : 'hidden'} fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-slate-900 text-white flex-col h-dvh shrink-0 lg:flex lg:sticky lg:top-0 lg:w-64 lg:z-30`}>
+      <button type="button" onClick={onClose} className="lg:hidden self-end m-2 p-2 rounded-lg hover:bg-slate-800" aria-label="Fechar menu"><X className="w-6 h-6" /></button>
       <div className="p-4 border-b border-slate-700">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
@@ -74,7 +106,8 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
               <li key={item.id}>
                 <button
                   type="button"
-                  onClick={() => onPageChange(item.id)}
+                  onClick={() => { onPageChange(item.id); onClose(); }}
+                  aria-current={isActive ? 'page' : undefined}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                     isActive
                       ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
@@ -121,5 +154,6 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
         </div>
       </div>
     </aside>
+    </>
   );
 }
