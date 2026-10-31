@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { Menu, WifiOff } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from './contexts/AuthContext';
 import type { Page } from './types';
 import Login from './components/Login';
@@ -36,6 +37,15 @@ function renderPage(page: Page) {
 
 export default function App() {
   const { user, loading, isDemo } = useAuth();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); };
+  }, []);
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
 
   if (loading) {
@@ -52,11 +62,16 @@ export default function App() {
   if (!user) return <Login />;
 
   return (
-    <div className="min-h-screen bg-slate-100 flex">
-      <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
-      <main className="flex-1 min-w-0 overflow-auto">
+    <div className="min-h-dvh bg-slate-100 flex">
+      <Sidebar open={menuOpen} onClose={closeMenu} currentPage={currentPage} onPageChange={setCurrentPage} />
+      <main className="wms-main flex-1 min-w-0">
+        <header className="sticky top-0 z-30 flex items-center gap-3 bg-slate-900 text-white px-3 py-2 lg:hidden">
+          <button type="button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu" aria-controls="wms-navigation" aria-expanded={menuOpen} className="p-2 rounded-lg hover:bg-slate-800"><Menu className="w-6 h-6" /></button>
+          <div className="min-w-0 flex-1"><p className="font-semibold">WMS Casa Meta</p><p className="text-xs text-slate-300 truncate">{user.email} · {user.role}</p></div>
+        </header>
+        {!online && <div role="status" className="flex items-center gap-2 bg-amber-100 text-amber-950 px-4 py-3 text-sm"><WifiOff className="w-5 h-5 shrink-0" />Sem conexão. As operações precisam de internet; confira os dados ao reconectar.</div>}
         {isDemo && (
-          <div className="sticky top-0 z-40 bg-amber-100 border-b border-amber-300 px-4 py-2 text-center text-xs sm:text-sm text-amber-900">
+          <div className="bg-amber-100 border-b border-amber-300 px-4 py-2 text-center text-xs sm:text-sm text-amber-900">
             <strong>DEMO ISOLADA:</strong> dados fictícios em memória. Você pode testar cadastros e fluxos; tudo volta ao estado inicial ao recarregar a página.
           </div>
         )}

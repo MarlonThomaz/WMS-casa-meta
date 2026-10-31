@@ -83,8 +83,8 @@ export default function Shipping() {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between gap-4">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Expedição</h1>
           <p className="text-slate-500">Separação, embalagem e despacho com reserva de estoque.</p>
@@ -134,7 +134,7 @@ export default function Shipping() {
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full mobile-cards">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="text-left px-4 py-3">Número</th>
@@ -148,16 +148,16 @@ export default function Shipping() {
             <tbody className="divide-y divide-slate-100">
               {filtered.map((shipment) => (
                 <tr key={shipment.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-mono text-sm">{shipment.shipment_number}</td>
-                  <td className="px-4 py-3 text-sm font-medium text-slate-800">{shipment.customer_name}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{shipment.carrier || '—'}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{priorityLabel[shipment.priority]}</td>
-                  <td className="px-4 py-3">
+                  <td data-label="Número" className="px-4 py-3 font-mono text-sm">{shipment.shipment_number}</td>
+                  <td data-label="Cliente" className="px-4 py-3 text-sm font-medium text-slate-800">{shipment.customer_name}</td>
+                  <td data-label="Transportadora" className="px-4 py-3 text-sm text-slate-600">{shipment.carrier || '—'}</td>
+                  <td data-label="Prioridade" className="px-4 py-3 text-sm text-slate-600">{priorityLabel[shipment.priority]}</td>
+                  <td data-label="Status" className="px-4 py-3">
                     <span className={`inline-flex px-2 py-1 rounded-full text-xs ${statusClass[shipment.status]}`}>
                       {statusLabel[shipment.status]}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td data-label="Ação" className="px-4 py-3 text-right">
                     <button
                       type="button"
                       onClick={() => setSelectedId(shipment.id)}
@@ -231,8 +231,8 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
   const busy = starting || updating || packing || shipping || cancelling;
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-start justify-between gap-4">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-blue-600 mb-2">
             <ChevronLeft className="w-4 h-4" /> Voltar
@@ -247,7 +247,7 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
 
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full mobile-cards">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="text-left px-4 py-3">Produto</th>
@@ -259,13 +259,13 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
             <tbody className="divide-y divide-slate-100">
               {shipment.lines.map((line) => (
                 <tr key={line.id}>
-                  <td className="px-4 py-3 text-sm">{productNames.get(line.product_id) || line.product_id}</td>
-                  <td className="px-4 py-3 text-sm">{line.from_location_id ? locationNames.get(line.from_location_id) || line.from_location_id : '—'}</td>
-                  <td className="px-4 py-3 text-sm text-right">{line.requested_quantity}</td>
-                  <td className="px-4 py-3 text-right">
+                  <td data-label="Produto" className="px-4 py-3 text-sm">{productNames.get(line.product_id) || line.product_id}</td>
+                  <td data-label="Origem" className="px-4 py-3 text-sm">{line.from_location_id ? locationNames.get(line.from_location_id) || line.from_location_id : '—'}</td>
+                  <td data-label="Solicitado" className="px-4 py-3 text-sm text-right">{line.requested_quantity}</td>
+                  <td data-label="Separado" className="px-4 py-3 text-right">
                     {shipment.status === 'picking' && canOperate ? (
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         min={0}
                         max={line.requested_quantity}
                         step="any"
@@ -479,7 +479,7 @@ function CreateShipmentModal({
                 </label>
                 <label className="text-sm">
                   <span className="block mb-1">Quantidade</span>
-                  <input type="number" min={1} step="any" required value={line.requested_quantity} onChange={(e) => updateLine(index, { requested_quantity: Number(e.target.value) })} className="w-full border rounded px-2 py-2" />
+                  <input type="number" inputMode="decimal" min={1} step="any" required value={line.requested_quantity} onChange={(e) => updateLine(index, { requested_quantity: Number(e.target.value) })} className="w-full border rounded px-2 py-2" />
                 </label>
                 <button type="button" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, i) => i !== index))} className="p-2 text-red-500 disabled:opacity-30">
                   <Trash2 className="w-4 h-4" />

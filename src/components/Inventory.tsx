@@ -52,8 +52,8 @@ export default function Inventory() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between gap-4">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Inventário</h1>
           <p className="text-slate-500">
@@ -97,7 +97,7 @@ export default function Inventory() {
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full mobile-cards">
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">SKU</th>
@@ -117,21 +117,21 @@ export default function Inventory() {
 
                 return (
                   <tr key={product.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 text-sm font-mono text-slate-600">{product.sku}</td>
-                    <td className="px-4 py-3">
+                    <td data-label="SKU" className="px-4 py-3 text-sm font-mono text-slate-600">{product.sku}</td>
+                    <td data-label="Produto" className="px-4 py-3">
                       <div className="text-sm font-medium text-slate-800">{product.name}</div>
                       {product.description && (
                         <div className="text-xs text-slate-500 max-w-md truncate">{product.description}</div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">{product.category || '—'}</td>
-                    <td className="px-4 py-3 text-right text-sm font-semibold text-slate-800">
+                    <td data-label="Categoria" className="px-4 py-3 text-sm text-slate-600">{product.category || '—'}</td>
+                    <td data-label="Saldo" className="px-4 py-3 text-right text-sm font-semibold text-slate-800">
                       {product.total_stock} {product.unit_base}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm text-slate-600">
+                    <td data-label="Mínimo" className="px-4 py-3 text-right text-sm text-slate-600">
                       {product.min_stock} {product.unit_base}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td data-label="Situação" className="px-4 py-3 text-center">
                       {isLowStock ? (
                         <span className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-red-100 text-red-700 rounded-full">
                           <AlertTriangle className="w-3 h-3" /> Baixo
@@ -143,7 +143,7 @@ export default function Inventory() {
                       )}
                     </td>
                     {canMaintainProducts && (
-                      <td className="px-4 py-3">
+                      <td data-label="Ações" className="px-4 py-3">
                         <div className="flex items-center justify-center gap-2">
                           <button
                             type="button"
@@ -296,10 +296,10 @@ function ProductModal({
               <input value={unitBase} onChange={(e) => setUnitBase(e.target.value)} className="w-full border rounded-lg px-3 py-2" placeholder="un" />
             </Field>
             <Field label="Estoque mínimo">
-              <input type="number" min={0} step="any" value={minStock} onChange={(e) => setMinStock(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+              <input type="number" inputMode="decimal" min={0} step="any" value={minStock} onChange={(e) => setMinStock(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
             </Field>
             <Field label="Estoque máximo (opcional)">
-              <input type="number" min={0} step="any" value={maxStock} onChange={(e) => setMaxStock(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+              <input type="number" inputMode="decimal" min={0} step="any" value={maxStock} onChange={(e) => setMaxStock(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
             </Field>
           </div>
 
