@@ -2,6 +2,18 @@ import { supabase, isSupabaseConfigured, isDemoMode } from '../lib/supabase';
 import { demoId, demoLocations, toDbLocation } from '../demoStore';
 import type { DBLocation, LocationWithOccupancy } from '../types';
 
+function deriveDisplayStatus(
+  status: DBLocation['status'],
+  totalQuantity: number
+): DBLocation['status'] {
+  // blocked, maintenance e reserved são estados administrativos explícitos.
+  // available/occupied são derivados da presença física de estoque.
+  if (status === 'blocked' || status === 'maintenance' || status === 'reserved') {
+    return status;
+  }
+  return totalQuantity > 0 ? 'occupied' : 'available';
+}
+
 export async function getLocations(): Promise<DBLocation[]> {
   if (isDemoMode) return demoLocations.map(toDbLocation);
   if (!isSupabaseConfigured) return [];
@@ -12,7 +24,15 @@ export async function getLocations(): Promise<DBLocation[]> {
 }
 
 export async function getLocationsWithOccupancy(): Promise<LocationWithOccupancy[]> {
-  if (isDemoMode) return demoLocations.map((location) => ({ ...location }));
+  if (isDemoMode) {
+    return demoLocations.map((location) => {
+      const totalQuantity = Number(location.total_quantity || 0);
+      return {
+        ...location,
+        status: deriveDisplayStatus(location.status, totalQuantity),
+      };
+    });
+  }
   if (!isSupabaseConfigured) return [];
 
   // Uma única consulta substitui o antigo padrão N+1 (uma RPC por localização).
@@ -35,6 +55,7 @@ export async function getLocationsWithOccupancy(): Promise<LocationWithOccupancy
       0
     );
     const capacity = Number(row.capacity || 0);
+    const rawStatus = row.status as DBLocation['status'];
 
     return {
       id: row.id,
@@ -45,7 +66,7 @@ export async function getLocationsWithOccupancy(): Promise<LocationWithOccupancy
       level: row.level || undefined,
       location_type: row.location_type,
       capacity: row.capacity ?? undefined,
-      status: row.status,
+      status: deriveDisplayStatus(rawStatus, totalQuantity),
       created_at: row.created_at,
       updated_at: row.updated_at,
       total_items: positiveBalances.length,
