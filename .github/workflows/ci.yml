@@ -251,6 +251,10 @@ jobs:
         shell: bash
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/regression_tests_round8_stock_count.sql
 
+      - name: Execute unavailable location regressions
+        shell: bash
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/location_availability_round8.sql
+
       - name: Execute barcode registration regressions
         shell: bash
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/barcode_registration_round8.sql
