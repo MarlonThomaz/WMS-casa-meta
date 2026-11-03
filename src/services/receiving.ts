@@ -132,7 +132,9 @@ export async function createReceiptWithLines(input: CreateReceiptInput): Promise
 }
 
 export async function updateReceivedQuantity(lineId: string, receivedQuantity: number): Promise<void> {
-  if (receivedQuantity < 0) throw new Error('Quantidade recebida não pode ser negativa');
+  if (!Number.isFinite(receivedQuantity) || receivedQuantity < 0) {
+    throw new Error('Quantidade recebida inválida');
+  }
 
   if (isDemoMode) {
     const line = demoReceiptLines.find((item) => item.id === lineId);
@@ -144,12 +146,15 @@ export async function updateReceivedQuantity(lineId: string, receivedQuantity: n
 
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('receipt_lines')
     .update({ received_quantity: receivedQuantity, updated_at: new Date().toISOString() })
-    .eq('id', lineId);
+    .eq('id', lineId)
+    .select('id')
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw new Error('Linha de recebimento não encontrada ou não disponível para alteração');
 }
 
 export async function confirmReceipt(receiptId: string): Promise<void> {
@@ -186,17 +191,23 @@ export async function cancelReceipt(receiptId: string): Promise<void> {
   if (isDemoMode) {
     const receipt = demoReceipts.find((item) => item.id === receiptId);
     if (!receipt) throw new Error('Recebimento não encontrado');
-    if (receipt.status === 'pending' || receipt.status === 'partial') receipt.status = 'cancelled';
+    if (receipt.status !== 'pending' && receipt.status !== 'partial') {
+      throw new Error(`Recebimento não pode ser cancelado no status ${receipt.status}`);
+    }
+    receipt.status = 'cancelled';
     return;
   }
 
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('receipts')
     .update({ status: 'cancelled' })
     .eq('id', receiptId)
-    .in('status', ['pending', 'partial']);
+    .in('status', ['pending', 'partial'])
+    .select('id')
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw new Error('Recebimento não está mais aberto; atualize a tela');
 }
