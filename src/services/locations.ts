@@ -23,7 +23,7 @@ export async function getLocationsWithOccupancy(): Promise<LocationWithOccupancy
       });
 
       if (error) {
-        return { ...location, total_items: 0, total_quantity: 0, occupancy_percentage: 0 };
+        throw new Error(`Erro ao calcular ocupação de ${location.code}: ${error.message}`);
       }
 
       const occupancy = (data as Array<{
