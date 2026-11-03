@@ -1,34 +1,47 @@
 import { AlertCircle, Loader2, MapPin, PackageSearch, Search } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import { useStockWithDetails } from '../hooks/useStock';
+import { useEffect, useState } from 'react';
+import { searchStockLocations, type StockBalanceWithDetails } from '../services/stock';
 
 export default function ProductLocator() {
-  const { balances, loading, error } = useStockWithDetails({ min_quantity: 1 });
   const [search, setSearch] = useState('');
+  const [balances, setBalances] = useState<StockBalanceWithDetails[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const normalized = search.trim().toLowerCase();
+  const normalized = search.trim();
 
-  const filtered = useMemo(() => {
-    if (!normalized) return [];
+  useEffect(() => {
+    if (normalized.length < 2) {
+      setBalances([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
 
-    return balances.filter((balance) => {
-      const product = balance.products;
-      const location = balance.locations;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const result = await searchStockLocations(normalized, 100);
+        if (!cancelled) setBalances(result);
+      } catch (err) {
+        if (!cancelled) {
+          setBalances([]);
+          setError(err instanceof Error ? err.message : 'Erro ao localizar estoque');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }, 250);
 
-      return [
-        product?.sku,
-        product?.name,
-        product?.category,
-        location?.code,
-        location?.zone,
-        location?.location_type,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(normalized));
-    });
-  }, [balances, normalized]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [normalized]);
 
-  const totalFound = filtered.reduce((sum, balance) => sum + Number(balance.quantity || 0), 0);
+  const totalFound = balances.reduce((sum, balance) => sum + Number(balance.quantity || 0), 0);
 
   return (
     <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
@@ -67,30 +80,30 @@ export default function ProductLocator() {
           />
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          A busca consulta somente posições com saldo físico maior que zero.
+          Digite ao menos 2 caracteres. A busca é executada no servidor e retorna até 100 posições com saldo físico positivo.
         </p>
       </div>
 
       {loading ? (
         <div className="py-12 flex items-center justify-center gap-2 text-slate-500">
-          <Loader2 className="w-5 h-5 animate-spin" /> Carregando posições de estoque...
+          <Loader2 className="w-5 h-5 animate-spin" /> Pesquisando posições de estoque...
         </div>
-      ) : !normalized ? (
+      ) : normalized.length < 2 ? (
         <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-8 text-center">
           <PackageSearch className="w-10 h-10 text-slate-400 mx-auto mb-3" />
           <p className="font-medium text-slate-700">Comece digitando um produto ou endereço.</p>
-          <p className="text-sm text-slate-500 mt-1">Você pode procurar tanto a mercadoria quanto uma posição física do armazém.</p>
+          <p className="text-sm text-slate-500 mt-1">Você pode procurar SKU, nome, categoria, zona ou posição física.</p>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : balances.length === 0 && !error ? (
         <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-500">
           Nenhuma mercadoria com saldo foi encontrada para “{search}”.
         </div>
-      ) : (
+      ) : balances.length > 0 ? (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-sm text-slate-500">Resultados</p>
-              <p className="font-semibold text-slate-800">{filtered.length} posição(ões) encontrada(s)</p>
+              <p className="font-semibold text-slate-800">{balances.length} posição(ões) encontrada(s)</p>
             </div>
             <div className="text-right">
               <p className="text-sm text-slate-500">Quantidade física nas posições exibidas</p>
@@ -99,7 +112,7 @@ export default function ProductLocator() {
           </div>
 
           <div className="grid gap-3">
-            {filtered.map((balance) => {
+            {balances.map((balance) => {
               const product = balance.products;
               const location = balance.locations;
 
@@ -136,7 +149,7 @@ export default function ProductLocator() {
             })}
           </div>
         </>
-      )}
+      ) : null}
     </div>
   );
 }
