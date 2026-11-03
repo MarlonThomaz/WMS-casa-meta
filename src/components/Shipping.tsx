@@ -20,8 +20,8 @@ import {
   useShipments,
   useStartPicking,
 } from '../hooks/useShipping';
-import { useProducts } from '../hooks/useProducts';
 import { useLocations } from '../hooks/useLocations';
+import { useReferenceLabels } from '../hooks/useReferenceLabels';
 import { useAuth } from '../contexts/AuthContext';
 import ProductSearchSelect from './ProductSearchSelect';
 import type { DBShipment, ProductWithStock } from '../types';
@@ -201,22 +201,20 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
   const { user } = useAuth();
   const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
   const { shipment, loading, error, refresh } = useShipment(shipmentId);
-  const { products } = useProducts();
-  const { locations } = useLocations();
   const { start, loading: starting } = useStartPicking();
   const { update, loading: updating } = useConfirmPickedQuantity();
   const { confirm: pack, loading: packing } = useConfirmPacked();
   const { confirm: ship, loading: shipping } = useConfirmShipped();
   const { cancel, loading: cancelling } = useCancelShipment();
-
-  const productNames = useMemo(
-    () => new Map(products.map((product) => [product.id, `${product.sku} — ${product.name}`])),
-    [products]
+  const productIds = useMemo(
+    () => shipment?.lines.map((line) => line.product_id) || [],
+    [shipment]
   );
-  const locationNames = useMemo(
-    () => new Map(locations.map((location) => [location.id, location.code])),
-    [locations]
+  const locationIds = useMemo(
+    () => shipment?.lines.flatMap((line) => line.from_location_id ? [line.from_location_id] : []) || [],
+    [shipment]
   );
+  const { labels, error: labelError } = useReferenceLabels(productIds, locationIds);
 
   if (loading) return <div className="p-6 text-slate-500">Carregando expedição...</div>;
   if (error || !shipment) {
@@ -247,6 +245,12 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
         </span>
       </div>
 
+      {labelError && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+          Não foi possível carregar alguns nomes de produtos ou endereços. Os identificadores originais continuam visíveis.
+        </div>
+      )}
+
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full mobile-cards">
@@ -261,8 +265,8 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
             <tbody className="divide-y divide-slate-100">
               {shipment.lines.map((line) => (
                 <tr key={line.id}>
-                  <td data-label="Produto" className="px-4 py-3 text-sm">{productNames.get(line.product_id) || line.product_id}</td>
-                  <td data-label="Origem" className="px-4 py-3 text-sm">{line.from_location_id ? locationNames.get(line.from_location_id) || line.from_location_id : '—'}</td>
+                  <td data-label="Produto" className="px-4 py-3 text-sm">{labels.products[line.product_id] || line.product_id}</td>
+                  <td data-label="Origem" className="px-4 py-3 text-sm">{line.from_location_id ? labels.locations[line.from_location_id] || line.from_location_id : '—'}</td>
                   <td data-label="Solicitado" className="px-4 py-3 text-sm text-right">{line.requested_quantity}</td>
                   <td data-label="Separado" className="px-4 py-3 text-right">
                     {shipment.status === 'picking' && canOperate ? (
