@@ -160,25 +160,15 @@ export async function startPicking(shipmentId: string): Promise<void> {
   if (error) throw new Error(`Falha ao iniciar separação: ${error.message}`);
 }
 
-export async function confirmPickedQuantity(
-  lineId: string,
-  pickedQuantity: number,
-  requestedQuantity: number
-): Promise<void> {
+export async function confirmPickedQuantity(lineId: string, pickedQuantity: number): Promise<void> {
   if (!Number.isFinite(pickedQuantity)) throw new Error('Quantidade separada inválida');
   if (pickedQuantity < 0) throw new Error('Quantidade separada não pode ser negativa');
-  if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) {
-    throw new Error('Quantidade solicitada inválida');
-  }
-  if (pickedQuantity > requestedQuantity) {
-    throw new Error('Quantidade separada não pode exceder a solicitada');
-  }
 
   if (isDemoMode) {
     const line = demoShipmentLines.find((item) => item.id === lineId);
     if (!line) throw new Error('Linha não encontrada');
-    if (Number(line.requested_quantity) !== requestedQuantity) {
-      throw new Error('Quantidade solicitada mudou; atualize a expedição');
+    if (pickedQuantity > Number(line.requested_quantity)) {
+      throw new Error('Quantidade separada não pode exceder a solicitada');
     }
     line.picked_quantity = pickedQuantity;
     line.updated_at = new Date().toISOString();
@@ -190,12 +180,16 @@ export async function confirmPickedQuantity(
     .from('shipment_lines')
     .update({ picked_quantity: pickedQuantity, updated_at: new Date().toISOString() })
     .eq('id', lineId)
-    .eq('requested_quantity', requestedQuantity)
     .select('id')
     .maybeSingle();
 
-  if (error) throw error;
-  if (!data) throw new Error('Linha mudou ou não está mais disponível; atualize a expedição');
+  if (error) {
+    if (error.code === '23514') {
+      throw new Error('Quantidade separada não pode exceder a solicitada');
+    }
+    throw error;
+  }
+  if (!data) throw new Error('Linha não encontrada ou não disponível para alteração');
 }
 
 export async function confirmPacked(shipmentId: string): Promise<void> {
