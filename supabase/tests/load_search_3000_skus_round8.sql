@@ -1,6 +1,6 @@
 -- ========================================
 -- Annona Mercis WMS - Regressão de escala do localizador
--- 3.000 SKUs e 6.000 saldos, tudo revertido ao final.
+-- 3.000 SKUs, 1.200 endereços e 6.000 saldos, tudo revertido ao final.
 -- ========================================
 
 BEGIN;
@@ -20,7 +20,7 @@ INSERT INTO public.locations (
   code, zone, aisle, rack, level, location_type, capacity, status
 )
 SELECT
-  'PERF-L-' || lpad(gs::text, 3, '0'),
+  'PERF-L-' || lpad(gs::text, 4, '0'),
   'PERF',
   lpad(((gs - 1) / 20 + 1)::text, 2, '0'),
   lpad(((gs - 1) % 20 + 1)::text, 2, '0'),
@@ -28,7 +28,7 @@ SELECT
   'storage',
   100000,
   'available'
-FROM generate_series(1, 60) AS gs;
+FROM generate_series(1, 1200) AS gs;
 
 INSERT INTO public.products (
   sku, name, description, category, unit_base, min_stock, max_stock, active
@@ -75,11 +75,18 @@ SELECT
 FROM numbered_products p
 CROSS JOIN generate_series(0, 1) AS slot
 JOIN numbered_locations l
-  ON l.rn = (((p.rn - 1) * 2 + slot) % 60) + 1;
+  ON l.rn = (((p.rn - 1) * 2 + slot) % 1200) + 1;
+
+-- Um endereço indisponível para validar a busca de destino sem interferir
+-- na possibilidade de retirar estoque de posições bloqueadas.
+UPDATE public.locations
+SET status = 'blocked'
+WHERE code = 'PERF-L-0001';
 
 DO $$
 DECLARE
   v_products BIGINT;
+  v_locations BIGINT;
   v_balances BIGINT;
   v_exact_rows BIGINT;
   v_name_rows BIGINT;
@@ -93,12 +100,22 @@ DECLARE
   v_inventory_second_page_rows BIGINT;
   v_inventory_exact_rows BIGINT;
   v_inventory_exact_total BIGINT;
+  v_location_rows BIGINT;
+  v_blocked_destination_rows BIGINT;
+  v_blocked_general_rows BIGINT;
+  v_source_rows BIGINT;
+  v_source_min_available NUMERIC;
+  v_product_id UUID;
   v_started TIMESTAMPTZ;
   v_elapsed INTERVAL;
 BEGIN
   SELECT count(*) INTO v_products
   FROM public.products
   WHERE sku LIKE 'PERF-SKU-%';
+
+  SELECT count(*) INTO v_locations
+  FROM public.locations
+  WHERE code LIKE 'PERF-L-%';
 
   SELECT count(*) INTO v_balances
   FROM public.stock_balances sb
@@ -107,6 +124,10 @@ BEGIN
 
   IF v_products <> 3000 THEN
     RAISE EXCEPTION 'LOAD-8.1: esperado 3000 SKUs, encontrado %', v_products;
+  END IF;
+
+  IF v_locations <> 1200 THEN
+    RAISE EXCEPTION 'LOAD-8.1: esperado 1200 endereços, encontrado %', v_locations;
   END IF;
 
   IF v_balances <> 6000 THEN
@@ -211,6 +232,50 @@ BEGIN
   IF v_inventory_exact_rows <> 1 OR v_inventory_exact_total <> 1 THEN
     RAISE EXCEPTION 'LOAD-8.3: busca exata do inventário retornou % linha(s), total %',
       v_inventory_exact_rows, v_inventory_exact_total;
+  END IF;
+
+  -- Busca de endereços deve trabalhar por limite mesmo com 1.200 posições.
+  v_started := clock_timestamp();
+  SELECT count(*) INTO v_location_rows
+  FROM public.search_locations('PERF-L', 20, false);
+  v_elapsed := clock_timestamp() - v_started;
+
+  IF v_location_rows <> 20 THEN
+    RAISE EXCEPTION 'LOAD-8.4: busca de endereços deveria limitar em 20, retornou %', v_location_rows;
+  END IF;
+
+  IF v_elapsed > interval '3 seconds' THEN
+    RAISE EXCEPTION 'LOAD-8.4: busca de endereços excedeu 3s: %', v_elapsed;
+  END IF;
+
+  SELECT count(*) INTO v_blocked_destination_rows
+  FROM public.search_locations('PERF-L-0001', 20, true);
+
+  SELECT count(*) INTO v_blocked_general_rows
+  FROM public.search_locations('PERF-L-0001', 20, false);
+
+  IF v_blocked_destination_rows <> 0 OR v_blocked_general_rows <> 1 THEN
+    RAISE EXCEPTION 'LOAD-8.4: filtro de destino indisponível inconsistente (% destino, % geral)',
+      v_blocked_destination_rows, v_blocked_general_rows;
+  END IF;
+
+  SELECT id INTO v_product_id
+  FROM public.products
+  WHERE sku = 'PERF-SKU-02999';
+
+  v_started := clock_timestamp();
+  SELECT count(*), MIN(available_quantity)
+    INTO v_source_rows, v_source_min_available
+    FROM public.search_product_source_locations(v_product_id, NULL, 20);
+  v_elapsed := clock_timestamp() - v_started;
+
+  IF v_source_rows <> 2 OR v_source_min_available <= 0 THEN
+    RAISE EXCEPTION 'LOAD-8.4: origem por produto deveria retornar 2 saldos disponíveis, retornou %, mínimo %',
+      v_source_rows, v_source_min_available;
+  END IF;
+
+  IF v_elapsed > interval '3 seconds' THEN
+    RAISE EXCEPTION 'LOAD-8.4: busca de origem por produto excedeu 3s: %', v_elapsed;
   END IF;
 END $$;
 
