@@ -1,49 +1,51 @@
 import { FormEvent, useState } from 'react';
 import {
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   Edit2,
   Loader2,
   Plus,
   Search,
   XCircle,
 } from 'lucide-react';
-import { useProducts } from '../hooks/useProducts';
+import { useProductSearch } from '../hooks/useProductSearch';
 import { useAuth } from '../contexts/AuthContext';
 import type { DBProduct, ProductWithStock } from '../types';
 
+const PAGE_SIZE = 50;
+
 export default function Inventory() {
   const { user, isDemo } = useAuth();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(1);
   const {
     products,
+    total,
+    totalPages,
     loading,
     error,
     addProduct,
     editProduct,
     removeProduct,
-  } = useProducts();
-  const [searchTerm, setSearchTerm] = useState('');
+  } = useProductSearch(searchTerm, page, PAGE_SIZE);
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
   const canMaintainProducts = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
-
-  const filteredProducts = products.filter((product) =>
-    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    product.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    product.category?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   const handleDeactivate = async (product: ProductWithStock) => {
     if (!window.confirm(`Desativar o produto ${product.sku} — ${product.name}?`)) return;
 
     try {
       await removeProduct(product.id);
+      if (products.length === 1 && page > 1) setPage((current) => Math.max(1, current - 1));
     } catch (err) {
       alert(`Erro ao desativar: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
     }
   };
 
-  if (loading) {
+  if (loading && products.length === 0) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -57,7 +59,7 @@ export default function Inventory() {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Inventário</h1>
           <p className="text-slate-500">
-            {products.length} produtos ativos cadastrados
+            {total} {searchTerm.trim() ? 'produto(s) encontrado(s)' : 'produtos ativos cadastrados'}
             {isDemo && (
               <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
                 Modo demonstração
@@ -90,9 +92,15 @@ export default function Inventory() {
           type="text"
           placeholder="Buscar por nome, SKU ou categoria..."
           value={searchTerm}
-          onChange={(event) => setSearchTerm(event.target.value)}
+          onChange={(event) => {
+            setSearchTerm(event.target.value);
+            setPage(1);
+          }}
           className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
         />
+        {loading && products.length > 0 && (
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-slate-400" />
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -112,7 +120,7 @@ export default function Inventory() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredProducts.map((product) => {
+              {products.map((product) => {
                 const isLowStock = Number(product.total_stock) <= Number(product.min_stock);
 
                 return (
@@ -171,8 +179,34 @@ export default function Inventory() {
           </table>
         </div>
 
-        {filteredProducts.length === 0 && (
+        {products.length === 0 && (
           <div className="p-8 text-center text-slate-400">Nenhum produto encontrado.</div>
+        )}
+
+        {(totalPages > 1 || total > 0) && (
+          <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-slate-500">
+              Página {page} de {totalPages} · {total} resultado(s)
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={page <= 1 || loading}
+                className="inline-flex items-center gap-1 px-3 py-1.5 border border-slate-200 bg-white rounded-lg text-sm text-slate-700 disabled:opacity-40"
+              >
+                <ChevronLeft className="w-4 h-4" /> Anterior
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                disabled={page >= totalPages || loading}
+                className="inline-flex items-center gap-1 px-3 py-1.5 border border-slate-200 bg-white rounded-lg text-sm text-slate-700 disabled:opacity-40"
+              >
+                Próxima <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
