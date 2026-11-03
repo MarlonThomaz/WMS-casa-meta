@@ -1,7 +1,7 @@
 {
-  "name": "WMS Casa Meta",
-  "short_name": "WMS",
-  "description": "Sistema de Gerenciamento de Armazém - Casa Meta",
+  "name": "Annona Mercis WMS",
+  "short_name": "Annona Mercis",
+  "description": "Sistema de Gerenciamento de Armazém - Annona Mercis",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",
