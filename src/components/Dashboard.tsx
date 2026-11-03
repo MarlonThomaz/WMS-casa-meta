@@ -13,16 +13,11 @@ import {
   Warehouse,
 } from 'lucide-react';
 import { useDashboardStats } from '../hooks/useDashboard';
-import { useProducts } from '../hooks/useProducts';
 import type { Page } from '../types';
 
 export default function Dashboard({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const { stats, loading, error, refresh } = useDashboardStats();
-  const { products } = useProducts();
-
-  const lowStockProducts = products.filter(
-    (product) => product.active && product.total_stock <= product.min_stock
-  );
+  const lowStockProducts = stats?.lowStockItems || [];
 
   if (loading && !stats) {
     return <div className="p-6 text-slate-500">Carregando painel do armazém...</div>;
