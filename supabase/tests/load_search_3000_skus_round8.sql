@@ -88,6 +88,11 @@ DECLARE
   v_dashboard_products BIGINT;
   v_expected_dashboard_stock NUMERIC;
   v_dashboard_stock NUMERIC;
+  v_inventory_page_rows BIGINT;
+  v_inventory_total BIGINT;
+  v_inventory_second_page_rows BIGINT;
+  v_inventory_exact_rows BIGINT;
+  v_inventory_exact_total BIGINT;
   v_started TIMESTAMPTZ;
   v_elapsed INTERVAL;
 BEGIN
@@ -167,6 +172,45 @@ BEGIN
   IF v_dashboard_stock <> v_expected_dashboard_stock THEN
     RAISE EXCEPTION 'LOAD-8.2: dashboard somou % unidades, esperado %',
       v_dashboard_stock, v_expected_dashboard_stock;
+  END IF;
+
+  -- Inventário deve paginar no banco e informar o total completo da busca.
+  v_started := clock_timestamp();
+  SELECT count(*), COALESCE(MAX(total_count), 0)
+    INTO v_inventory_page_rows, v_inventory_total
+    FROM public.search_products_with_stock('PERF-SKU', 50, 0);
+  v_elapsed := clock_timestamp() - v_started;
+
+  IF v_inventory_page_rows <> 50 THEN
+    RAISE EXCEPTION 'LOAD-8.3: primeira página do inventário deveria ter 50 itens, retornou %',
+      v_inventory_page_rows;
+  END IF;
+
+  IF v_inventory_total <> 3000 THEN
+    RAISE EXCEPTION 'LOAD-8.3: busca paginada deveria informar 3000 itens, informou %',
+      v_inventory_total;
+  END IF;
+
+  IF v_elapsed > interval '3 seconds' THEN
+    RAISE EXCEPTION 'LOAD-8.3: busca paginada excedeu 3s: %', v_elapsed;
+  END IF;
+
+  SELECT count(*)
+    INTO v_inventory_second_page_rows
+    FROM public.search_products_with_stock('PERF-SKU', 50, 50);
+
+  IF v_inventory_second_page_rows <> 50 THEN
+    RAISE EXCEPTION 'LOAD-8.3: segunda página do inventário deveria ter 50 itens, retornou %',
+      v_inventory_second_page_rows;
+  END IF;
+
+  SELECT count(*), COALESCE(MAX(total_count), 0)
+    INTO v_inventory_exact_rows, v_inventory_exact_total
+    FROM public.search_products_with_stock('PERF-SKU-02999', 50, 0);
+
+  IF v_inventory_exact_rows <> 1 OR v_inventory_exact_total <> 1 THEN
+    RAISE EXCEPTION 'LOAD-8.3: busca exata do inventário retornou % linha(s), total %',
+      v_inventory_exact_rows, v_inventory_exact_total;
   END IF;
 END $$;
 
