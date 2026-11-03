@@ -23,7 +23,8 @@ import {
 import { useProducts } from '../hooks/useProducts';
 import { useLocations } from '../hooks/useLocations';
 import { useAuth } from '../contexts/AuthContext';
-import type { DBShipment } from '../types';
+import ProductSearchSelect from './ProductSearchSelect';
+import type { DBShipment, ProductWithStock } from '../types';
 
 const statusLabel: Record<DBShipment['status'], string> = {
   pending: 'Pendente',
@@ -50,6 +51,7 @@ const priorityLabel: Record<DBShipment['priority'], string> = {
 
 type DraftLine = {
   product_id: string;
+  product: ProductWithStock | null;
   requested_quantity: number;
   from_location_id: string;
 };
@@ -265,7 +267,8 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
                   <td data-label="Separado" className="px-4 py-3 text-right">
                     {shipment.status === 'picking' && canOperate ? (
                       <input
-                        type="number" inputMode="decimal"
+                        type="number"
+                        inputMode="decimal"
                         min={0}
                         max={line.requested_quantity}
                         step="any"
@@ -380,7 +383,6 @@ function CreateShipmentModal({
   onClose: () => void;
   onCreated: (id: string) => void | Promise<void>;
 }) {
-  const { products } = useProducts();
   const { locations } = useLocations();
   const { createNewShipment, loading } = useCreateShipment();
   const [customer, setCustomer] = useState('');
@@ -389,7 +391,7 @@ function CreateShipmentModal({
   const [expectedDate, setExpectedDate] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [lines, setLines] = useState<DraftLine[]>([
-    { product_id: '', requested_quantity: 1, from_location_id: '' },
+    { product_id: '', product: null, requested_quantity: 1, from_location_id: '' },
   ]);
 
   const updateLine = (index: number, patch: Partial<DraftLine>) => {
@@ -401,7 +403,7 @@ function CreateShipmentModal({
     setError(null);
 
     try {
-      if (lines.some((line) => !line.product_id || !line.from_location_id || line.requested_quantity <= 0)) {
+      if (lines.some((line) => !line.product_id || !line.product || !line.from_location_id || line.requested_quantity <= 0)) {
         throw new Error('Preencha produto, origem e quantidade em todas as linhas.');
       }
 
@@ -410,7 +412,12 @@ function CreateShipmentModal({
         carrier: carrier || undefined,
         priority,
         expected_date: expectedDate || undefined,
-        lines,
+        lines: lines.map((line) => ({
+          product_id: line.product_id,
+          requested_quantity: line.requested_quantity,
+          from_location_id: line.from_location_id,
+          unit: line.product?.unit_base || 'un',
+        })),
       });
 
       await onCreated(created.id);
@@ -456,20 +463,27 @@ function CreateShipmentModal({
           <div className="space-y-3">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Itens</h3>
-              <button type="button" onClick={() => setLines((current) => [...current, { product_id: '', requested_quantity: 1, from_location_id: '' }])} className="text-sm text-blue-600">
+              <button
+                type="button"
+                onClick={() => setLines((current) => [...current, { product_id: '', product: null, requested_quantity: 1, from_location_id: '' }])}
+                className="text-sm text-blue-600"
+              >
                 + Adicionar item
               </button>
             </div>
 
             {lines.map((line, index) => (
               <div key={index} className="grid md:grid-cols-[1fr_1fr_120px_40px] gap-2 items-end bg-slate-50 p-3 rounded-lg">
-                <label className="text-sm">
+                <div className="text-sm">
                   <span className="block mb-1">Produto</span>
-                  <select required value={line.product_id} onChange={(e) => updateLine(index, { product_id: e.target.value })} className="w-full border rounded px-2 py-2 bg-white">
-                    <option value="">Selecione</option>
-                    {products.map((product) => <option key={product.id} value={product.id}>{product.sku} — {product.name}</option>)}
-                  </select>
-                </label>
+                  <ProductSearchSelect
+                    value={line.product}
+                    onChange={(product) => updateLine(index, {
+                      product,
+                      product_id: product?.id || '',
+                    })}
+                  />
+                </div>
                 <label className="text-sm">
                   <span className="block mb-1">Origem</span>
                   <select required value={line.from_location_id} onChange={(e) => updateLine(index, { from_location_id: e.target.value })} className="w-full border rounded px-2 py-2 bg-white">
