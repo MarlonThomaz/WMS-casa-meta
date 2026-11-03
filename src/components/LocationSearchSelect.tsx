@@ -9,7 +9,7 @@ import {
 type LocationSearchSelectProps = {
   value: LocationSearchOption | null;
   onChange: (location: LocationSearchOption | null) => void;
-  mode: 'source' | 'destination';
+  mode: 'source' | 'destination' | 'any';
   productId?: string;
   placeholder?: string;
   disabled?: boolean;
@@ -66,7 +66,7 @@ export default function LocationSearchSelect({
         setError(null);
         const found = mode === 'source'
           ? await searchProductSourceLocations(productId || '', query, 20)
-          : await searchLocations(query, 20, true);
+          : await searchLocations(query, 20, mode === 'destination');
 
         if (requestId !== requestIdRef.current) return;
         const excluded = excludeKey ? new Set(excludeKey.split('|')) : new Set<string>();
@@ -85,7 +85,13 @@ export default function LocationSearchSelect({
 
   const resolvedPlaceholder = sourceUnavailable
     ? 'Selecione o produto primeiro'
-    : placeholder || (mode === 'source' ? 'Buscar endereço de origem...' : 'Buscar endereço de destino...');
+    : placeholder || (
+      mode === 'source'
+        ? 'Buscar endereço de origem...'
+        : mode === 'destination'
+          ? 'Buscar endereço de destino...'
+          : 'Buscar endereço...'
+    );
 
   return (
     <div className="relative">
@@ -118,7 +124,9 @@ export default function LocationSearchSelect({
             <div className="px-3 py-3 text-sm text-slate-400">
               {mode === 'source'
                 ? 'Nenhum endereço com saldo disponível para este produto.'
-                : 'Nenhum endereço disponível encontrado.'}
+                : mode === 'destination'
+                  ? 'Nenhum endereço disponível encontrado.'
+                  : 'Nenhum endereço encontrado.'}
             </div>
           )}
           {results.map((location) => (
@@ -146,7 +154,7 @@ export default function LocationSearchSelect({
               </div>
               <div className="text-xs text-slate-500 mt-0.5 ml-6">
                 {secondaryLabel(location)}
-                {mode === 'destination' && location.total_quantity !== undefined
+                {mode !== 'source' && location.total_quantity !== undefined
                   ? ` · armazenado ${location.total_quantity}`
                   : ''}
               </div>
