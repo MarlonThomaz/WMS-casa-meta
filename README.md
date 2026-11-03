@@ -6,7 +6,7 @@ Sistema web de gerenciamento de armazém desenvolvido com React, TypeScript, Vit
 
 O projeto está em **estabilização para piloto web controlado**. O núcleo transacional já cobre os fluxos principais do MVP, mas a versão ainda deve ser homologada em um projeto Supabase de teste real antes de qualquer uso em produção.
 
-A branch de estabilização é `wms-stabilization-round8` e o trabalho entra na `main` somente por pull request após CI e homologação.
+A `main` é agora a branch oficial e contém a antiga Round8 consolidada com os ajustes do piloto mobile. Novos trabalhos devem partir da `main`.
 
 ## Escopo atual
 
