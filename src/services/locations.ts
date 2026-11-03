@@ -15,31 +15,44 @@ export async function getLocationsWithOccupancy(): Promise<LocationWithOccupancy
   if (isDemoMode) return demoLocations.map((location) => ({ ...location }));
   if (!isSupabaseConfigured) return [];
 
-  const locations = await getLocations();
-  return Promise.all(
-    locations.map(async (location) => {
-      const { data, error } = await supabase.rpc('get_location_occupancy', {
-        p_location_id: location.id,
-      });
+  // Uma única consulta substitui o antigo padrão N+1 (uma RPC por localização).
+  // O total é agregado no cliente a partir dos saldos já protegidos por RLS.
+  const { data, error } = await supabase
+    .from('locations')
+    .select(`
+      *,
+      stock_balances (quantity)
+    `)
+    .order('code');
 
-      if (error) {
-        throw new Error(`Erro ao calcular ocupação de ${location.code}: ${error.message}`);
-      }
+  if (error) throw new Error(`Erro ao carregar ocupação das localizações: ${error.message}`);
 
-      const occupancy = (data as Array<{
-        total_items?: number;
-        total_quantity?: number;
-        occupancy_percentage?: number;
-      }> | null)?.[0] || {};
+  return (data || []).map((row) => {
+    const balances = (row.stock_balances || []) as Array<{ quantity: number | string | null }>;
+    const positiveBalances = balances.filter((balance) => Number(balance.quantity || 0) > 0);
+    const totalQuantity = positiveBalances.reduce(
+      (sum, balance) => sum + Number(balance.quantity || 0),
+      0
+    );
+    const capacity = Number(row.capacity || 0);
 
-      return {
-        ...location,
-        total_items: Number(occupancy.total_items || 0),
-        total_quantity: Number(occupancy.total_quantity || 0),
-        occupancy_percentage: Number(occupancy.occupancy_percentage || 0),
-      };
-    })
-  );
+    return {
+      id: row.id,
+      code: row.code,
+      zone: row.zone,
+      aisle: row.aisle || undefined,
+      rack: row.rack || undefined,
+      level: row.level || undefined,
+      location_type: row.location_type,
+      capacity: row.capacity ?? undefined,
+      status: row.status,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      total_items: positiveBalances.length,
+      total_quantity: totalQuantity,
+      occupancy_percentage: capacity > 0 ? Math.min(100, (totalQuantity / capacity) * 100) : 0,
+    } as LocationWithOccupancy;
+  });
 }
 
 export async function createLocation(
