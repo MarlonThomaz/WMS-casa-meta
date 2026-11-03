@@ -16,7 +16,7 @@ function createWindow() {
       contextIsolation: true,
       enableRemoteModule: false
     },
-    title: 'WMS Casa Meta',
+    title: 'Annona Mercis WMS',
     autoHideMenuBar: true,
     show: false,
     backgroundColor: '#0f172a'
@@ -84,7 +84,7 @@ function createWindow() {
           {
             label: 'Documentação',
             click: async () => {
-              await shell.openExternal('https://github.com/seu-usuario/wms-casa-meta');
+              await shell.openExternal('https://github.com/MarlonThomaz/WMS-casa-meta');
             }
           }
         ]
