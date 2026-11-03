@@ -20,10 +20,11 @@ import {
   useShipments,
   useStartPicking,
 } from '../hooks/useShipping';
-import { useLocations } from '../hooks/useLocations';
 import { useReferenceLabels } from '../hooks/useReferenceLabels';
 import { useAuth } from '../contexts/AuthContext';
 import ProductSearchSelect from './ProductSearchSelect';
+import LocationSearchSelect from './LocationSearchSelect';
+import type { LocationSearchOption } from '../services/locationSearch';
 import type { DBShipment, ProductWithStock } from '../types';
 
 const statusLabel: Record<DBShipment['status'], string> = {
@@ -54,7 +55,16 @@ type DraftLine = {
   product: ProductWithStock | null;
   requested_quantity: number;
   from_location_id: string;
+  from_location: LocationSearchOption | null;
 };
+
+const emptyDraftLine = (): DraftLine => ({
+  product_id: '',
+  product: null,
+  requested_quantity: 1,
+  from_location_id: '',
+  from_location: null,
+});
 
 export default function Shipping() {
   const { user } = useAuth();
@@ -387,16 +397,13 @@ function CreateShipmentModal({
   onClose: () => void;
   onCreated: (id: string) => void | Promise<void>;
 }) {
-  const { locations } = useLocations();
   const { createNewShipment, loading } = useCreateShipment();
   const [customer, setCustomer] = useState('');
   const [carrier, setCarrier] = useState('');
   const [priority, setPriority] = useState<DBShipment['priority']>('medium');
   const [expectedDate, setExpectedDate] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [lines, setLines] = useState<DraftLine[]>([
-    { product_id: '', product: null, requested_quantity: 1, from_location_id: '' },
-  ]);
+  const [lines, setLines] = useState<DraftLine[]>([emptyDraftLine()]);
 
   const updateLine = (index: number, patch: Partial<DraftLine>) => {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -407,8 +414,13 @@ function CreateShipmentModal({
     setError(null);
 
     try {
-      if (lines.some((line) => !line.product_id || !line.product || !line.from_location_id || line.requested_quantity <= 0)) {
-        throw new Error('Preencha produto, origem e quantidade em todas as linhas.');
+      for (const line of lines) {
+        if (!line.product_id || !line.product || !line.from_location_id || !line.from_location || line.requested_quantity <= 0) {
+          throw new Error('Preencha produto, origem e quantidade em todas as linhas.');
+        }
+        if (line.from_location.available_quantity !== undefined && line.requested_quantity > line.from_location.available_quantity) {
+          throw new Error(`Quantidade solicitada maior que o saldo disponível em ${line.from_location.code}.`);
+        }
       }
 
       const created = await createNewShipment({
@@ -469,7 +481,7 @@ function CreateShipmentModal({
               <h3 className="font-semibold">Itens</h3>
               <button
                 type="button"
-                onClick={() => setLines((current) => [...current, { product_id: '', product: null, requested_quantity: 1, from_location_id: '' }])}
+                onClick={() => setLines((current) => [...current, emptyDraftLine()])}
                 className="text-sm text-blue-600"
               >
                 + Adicionar item
@@ -485,16 +497,23 @@ function CreateShipmentModal({
                     onChange={(product) => updateLine(index, {
                       product,
                       product_id: product?.id || '',
+                      from_location_id: '',
+                      from_location: null,
                     })}
                   />
                 </div>
-                <label className="text-sm">
+                <div className="text-sm">
                   <span className="block mb-1">Origem</span>
-                  <select required value={line.from_location_id} onChange={(e) => updateLine(index, { from_location_id: e.target.value })} className="w-full border rounded px-2 py-2 bg-white">
-                    <option value="">Selecione</option>
-                    {locations.map((location) => <option key={location.id} value={location.id}>{location.code}</option>)}
-                  </select>
-                </label>
+                  <LocationSearchSelect
+                    mode="source"
+                    productId={line.product_id}
+                    value={line.from_location}
+                    onChange={(location) => updateLine(index, {
+                      from_location: location,
+                      from_location_id: location?.id || '',
+                    })}
+                  />
+                </div>
                 <label className="text-sm">
                   <span className="block mb-1">Quantidade</span>
                   <input type="number" inputMode="decimal" min={1} step="any" required value={line.requested_quantity} onChange={(e) => updateLine(index, { requested_quantity: Number(e.target.value) })} className="w-full border rounded px-2 py-2" />
