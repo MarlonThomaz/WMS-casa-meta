@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
-  Shipment,
-  ShipmentWithLines,
+  type Shipment,
+  type ShipmentWithLines,
   getShipments,
   getShipmentById,
-  getShipmentsByStatus,
-  getShipmentsByPriority,
   createShipmentWithLines,
   startPicking,
   confirmPickedQuantity,
@@ -14,11 +12,7 @@ import {
   cancelShipment,
 } from '../services/shipping';
 
-export function useShipments(filters?: {
-  status?: Shipment['status'];
-  priority?: Shipment['priority'];
-  limit?: number;
-}) {
+export function useShipments(limit = 100) {
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,17 +21,7 @@ export function useShipments(filters?: {
     try {
       setLoading(true);
       setError(null);
-
-      let data: Shipment[];
-      if (filters?.status) {
-        data = await getShipmentsByStatus(filters.status, filters.limit || 100);
-      } else if (filters?.priority) {
-        data = await getShipmentsByPriority(filters.priority, filters.limit || 100);
-      } else {
-        data = await getShipments(filters?.limit || 100);
-      }
-
-      setShipments(data);
+      setShipments(await getShipments(limit));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar expedições');
       console.error('Erro ao carregar expedições:', err);
@@ -48,14 +32,9 @@ export function useShipments(filters?: {
 
   useEffect(() => {
     void loadShipments();
-  }, [filters?.status, filters?.priority, filters?.limit]);
+  }, [limit]);
 
-  return {
-    shipments,
-    loading,
-    error,
-    refresh: loadShipments,
-  };
+  return { shipments, loading, error, refresh: loadShipments };
 }
 
 export function useShipment(id: string | null) {
@@ -144,6 +123,27 @@ export function useStartPicking() {
   return { start, loading, error };
 }
 
+export function useConfirmPickedQuantity() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const update = async (lineId: string, quantity: number) => {
+    try {
+      setLoading(true);
+      setError(null);
+      await confirmPickedQuantity(lineId, quantity);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Erro ao atualizar quantidade';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { update, loading, error };
+}
+
 export function useConfirmPacked() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -205,25 +205,4 @@ export function useCancelShipment() {
   };
 
   return { cancel, loading, error };
-}
-
-export function useConfirmPickedQuantity() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const update = async (lineId: string, quantity: number) => {
-    try {
-      setLoading(true);
-      setError(null);
-      await confirmPickedQuantity(lineId, quantity);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Erro ao atualizar quantidade';
-      setError(errorMessage);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return { update, loading, error };
 }
