@@ -90,7 +90,7 @@ export default function Sidebar({ currentPage, onPageChange, open, onClose }: Si
             <Building2 className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h1 className="font-bold text-lg">WMS Casa Meta</h1>
+            <h1 className="font-bold text-lg">Annona Mercis WMS</h1>
             <p className="text-xs text-slate-400">Warehouse Management</p>
           </div>
         </div>
