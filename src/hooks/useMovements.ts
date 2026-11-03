@@ -1,19 +1,13 @@
 import { useEffect, useState } from 'react';
 import {
-  Movement,
-  MovementWithLines,
+  type Movement,
+  type MovementWithLines,
   createAndProcessMovement,
   getMovementById,
   getMovements,
-  getMovementsByStatus,
-  getMovementsByType,
 } from '../services/movements';
 
-export function useMovements(filters?: {
-  type?: Movement['movement_type'];
-  status?: Movement['status'];
-  limit?: number;
-}) {
+export function useMovements(limit = 100) {
   const [movements, setMovements] = useState<Movement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,16 +16,7 @@ export function useMovements(filters?: {
     try {
       setLoading(true);
       setError(null);
-
-      let data: Movement[];
-      if (filters?.type) {
-        data = await getMovementsByType(filters.type, filters.limit || 100);
-      } else if (filters?.status) {
-        data = await getMovementsByStatus(filters.status, filters.limit || 100);
-      } else {
-        data = await getMovements(filters?.limit || 100);
-      }
-
+      const data = await getMovements(limit);
       setMovements(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar movimentações');
@@ -43,7 +28,7 @@ export function useMovements(filters?: {
 
   useEffect(() => {
     void loadMovements();
-  }, [filters?.type, filters?.status, filters?.limit]);
+  }, [limit]);
 
   return { movements, loading, error, refresh: loadMovements };
 }
