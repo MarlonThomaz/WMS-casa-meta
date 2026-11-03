@@ -224,6 +224,9 @@ function CreateMovementModal({ onClose, onCreated }: { onClose: () => void; onCr
 
   const needsFrom = movementType === 'outbound' || movementType === 'transfer' || (movementType === 'adjustment' && adjustmentDirection === 'decrease');
   const needsTo = movementType === 'inbound' || movementType === 'transfer' || (movementType === 'adjustment' && adjustmentDirection === 'increase');
+  const destinationLocations = locations.filter(
+    (location) => location.status !== 'blocked' && location.status !== 'maintenance'
+  );
 
   const updateLine = (index: number, patch: Partial<DraftLine>) => {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -335,7 +338,7 @@ function CreateMovementModal({ onClose, onCreated }: { onClose: () => void; onCr
                   <span className="block text-slate-600 mb-1">Destino</span>
                   <select disabled={!needsTo} value={line.to_location_id} onChange={(event) => updateLine(index, { to_location_id: event.target.value })} className="w-full border rounded-lg px-2 py-2 bg-white disabled:bg-slate-100">
                     <option value="">{needsTo ? 'Selecione...' : 'Não se aplica'}</option>
-                    {locations.map((location) => <option key={location.id} value={location.id}>{location.code}</option>)}
+                    {destinationLocations.map((location) => <option key={location.id} value={location.id}>{location.code}</option>)}
                   </select>
                 </label>
                 <button type="button" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, i) => i !== index))} className="p-2 text-red-500 disabled:text-slate-300" title="Remover linha">
