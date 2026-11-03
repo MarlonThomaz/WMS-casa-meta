@@ -51,8 +51,7 @@ INSERT INTO public.stock_counts (
   status,
   notes,
   created_by,
-  operator_id,
-  started_at
+  operator_id
 ) VALUES (
   '94000000-0000-0000-0000-000000000001',
   'CNT-PERF-1200',
@@ -60,8 +59,7 @@ INSERT INTO public.stock_counts (
   'in_progress',
   'Fixture temporária de paginação',
   '10000000-0000-0000-0000-000000000002',
-  '10000000-0000-0000-0000-000000000002',
-  now()
+  '10000000-0000-0000-0000-000000000002'
 );
 
 INSERT INTO public.stock_count_lines (
