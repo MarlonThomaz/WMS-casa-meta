@@ -12,8 +12,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useCreateMovement, useMovement, useMovements } from '../hooks/useMovements';
-import { useProducts } from '../hooks/useProducts';
 import { useLocations } from '../hooks/useLocations';
+import { useReferenceLabels } from '../hooks/useReferenceLabels';
 import { useAuth } from '../contexts/AuthContext';
 import ProductSearchSelect from './ProductSearchSelect';
 import type { DBMovement, ProductWithStock } from '../types';
@@ -367,11 +367,17 @@ function CreateMovementModal({ onClose, onCreated }: { onClose: () => void; onCr
 
 function MovementDetail({ movementId, onBack }: { movementId: string; onBack: () => void }) {
   const { movement, loading, error } = useMovement(movementId);
-  const { products } = useProducts();
-  const { locations } = useLocations();
-
-  const productNames = useMemo(() => new Map(products.map((product) => [product.id, `${product.sku} — ${product.name}`])), [products]);
-  const locationNames = useMemo(() => new Map(locations.map((location) => [location.id, location.code])), [locations]);
+  const productIds = useMemo(
+    () => movement?.lines.map((line) => line.product_id) || [],
+    [movement]
+  );
+  const locationIds = useMemo(
+    () => movement?.lines.flatMap((line) =>
+      [line.from_location_id, line.to_location_id].filter((id): id is string => Boolean(id))
+    ) || [],
+    [movement]
+  );
+  const { labels, error: labelError } = useReferenceLabels(productIds, locationIds);
 
   if (loading) return <div className="p-6 text-slate-500">Carregando movimentação...</div>;
   if (error || !movement) {
@@ -395,6 +401,12 @@ function MovementDetail({ movementId, onBack }: { movementId: string; onBack: ()
         {movement.notes && <p className="text-slate-500 mt-2">{movement.notes}</p>}
       </div>
 
+      {labelError && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+          Não foi possível carregar alguns nomes de produtos ou endereços. Os identificadores originais continuam visíveis.
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full mobile-cards">
@@ -404,9 +416,9 @@ function MovementDetail({ movementId, onBack }: { movementId: string; onBack: ()
             <tbody className="divide-y divide-slate-100">
               {movement.lines.map((line) => (
                 <tr key={line.id}>
-                  <td data-label="Produto" className="px-4 py-3 text-sm">{productNames.get(line.product_id) || line.product_id}</td>
-                  <td data-label="Origem" className="px-4 py-3 text-sm">{line.from_location_id ? locationNames.get(line.from_location_id) || line.from_location_id : '—'}</td>
-                  <td data-label="Destino" className="px-4 py-3 text-sm">{line.to_location_id ? locationNames.get(line.to_location_id) || line.to_location_id : '—'}</td>
+                  <td data-label="Produto" className="px-4 py-3 text-sm">{labels.products[line.product_id] || line.product_id}</td>
+                  <td data-label="Origem" className="px-4 py-3 text-sm">{line.from_location_id ? labels.locations[line.from_location_id] || line.from_location_id : '—'}</td>
+                  <td data-label="Destino" className="px-4 py-3 text-sm">{line.to_location_id ? labels.locations[line.to_location_id] || line.to_location_id : '—'}</td>
                   <td data-label="Quantidade" className="px-4 py-3 text-sm text-right font-medium">{line.quantity}</td>
                   <td data-label="Unidade" className="px-4 py-3 text-sm">{line.unit}</td>
                 </tr>
