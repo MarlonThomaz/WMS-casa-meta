@@ -2,6 +2,11 @@ import { supabase, isSupabaseConfigured, isDemoMode } from '../lib/supabase';
 import { demoId, demoProducts, toDbProduct } from '../demoStore';
 import type { DBProduct, ProductWithStock } from '../types';
 
+export type ProductSearchPage = {
+  items: ProductWithStock[];
+  total: number;
+};
+
 export async function getProductsWithStock(): Promise<ProductWithStock[]> {
   if (isDemoMode) return demoProducts.filter((product) => product.active).map((product) => ({ ...product }));
   if (!isSupabaseConfigured) return [];
@@ -9,6 +14,56 @@ export async function getProductsWithStock(): Promise<ProductWithStock[]> {
   const { data, error } = await supabase.rpc('get_products_with_stock');
   if (error) throw error;
   return (data || []) as ProductWithStock[];
+}
+
+export async function searchProductsPage(
+  query = '',
+  limit = 50,
+  offset = 0
+): Promise<ProductSearchPage> {
+  const safeLimit = Math.min(Math.max(Math.trunc(limit) || 50, 1), 100);
+  const safeOffset = Math.max(Math.trunc(offset) || 0, 0);
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (isDemoMode) {
+    const filtered = demoProducts
+      .filter((product) => product.active)
+      .filter((product) => {
+        if (!normalizedQuery) return true;
+        return (
+          product.sku.toLowerCase().includes(normalizedQuery) ||
+          product.name.toLowerCase().includes(normalizedQuery) ||
+          product.category?.toLowerCase().includes(normalizedQuery)
+        );
+      })
+      .sort((a, b) => a.sku.localeCompare(b.sku));
+
+    return {
+      items: filtered.slice(safeOffset, safeOffset + safeLimit).map((product) => ({ ...product })),
+      total: filtered.length,
+    };
+  }
+
+  if (!isSupabaseConfigured) return { items: [], total: 0 };
+
+  const { data, error } = await supabase.rpc('search_products_with_stock', {
+    p_query: query.trim() || null,
+    p_limit: safeLimit,
+    p_offset: safeOffset,
+  });
+
+  if (error) throw error;
+
+  const rows = (data || []) as Array<ProductWithStock & { total_count?: number | string | null }>;
+  const total = rows.length > 0 ? Number(rows[0].total_count || 0) : 0;
+  const items = rows.map(({ total_count: _totalCount, ...product }) => ({
+    ...product,
+    min_stock: Number(product.min_stock || 0),
+    max_stock: product.max_stock == null ? undefined : Number(product.max_stock),
+    total_stock: Number(product.total_stock || 0),
+  }));
+
+  return { items, total };
 }
 
 export async function createProduct(
