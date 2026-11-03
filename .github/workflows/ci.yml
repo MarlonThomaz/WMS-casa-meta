@@ -243,6 +243,10 @@ jobs:
         shell: bash
         run: bash supabase/tests/concurrency_reservation_round8.sh
 
+      - name: Execute concurrent physical movement regression
+        shell: bash
+        run: bash supabase/tests/concurrency_movement_round8.sh
+
       - name: Execute stock and count regressions
         shell: bash
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/regression_tests_round8_stock_count.sql
