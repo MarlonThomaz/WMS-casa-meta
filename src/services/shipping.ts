@@ -160,14 +160,25 @@ export async function startPicking(shipmentId: string): Promise<void> {
   if (error) throw new Error(`Falha ao iniciar separação: ${error.message}`);
 }
 
-export async function confirmPickedQuantity(lineId: string, pickedQuantity: number): Promise<void> {
+export async function confirmPickedQuantity(
+  lineId: string,
+  pickedQuantity: number,
+  requestedQuantity: number
+): Promise<void> {
+  if (!Number.isFinite(pickedQuantity)) throw new Error('Quantidade separada inválida');
   if (pickedQuantity < 0) throw new Error('Quantidade separada não pode ser negativa');
+  if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) {
+    throw new Error('Quantidade solicitada inválida');
+  }
+  if (pickedQuantity > requestedQuantity) {
+    throw new Error('Quantidade separada não pode exceder a solicitada');
+  }
 
   if (isDemoMode) {
     const line = demoShipmentLines.find((item) => item.id === lineId);
     if (!line) throw new Error('Linha não encontrada');
-    if (pickedQuantity > Number(line.requested_quantity)) {
-      throw new Error('Quantidade separada excede a solicitada');
+    if (Number(line.requested_quantity) !== requestedQuantity) {
+      throw new Error('Quantidade solicitada mudou; atualize a expedição');
     }
     line.picked_quantity = pickedQuantity;
     line.updated_at = new Date().toISOString();
@@ -175,12 +186,16 @@ export async function confirmPickedQuantity(lineId: string, pickedQuantity: numb
   }
 
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('shipment_lines')
     .update({ picked_quantity: pickedQuantity, updated_at: new Date().toISOString() })
-    .eq('id', lineId);
+    .eq('id', lineId)
+    .eq('requested_quantity', requestedQuantity)
+    .select('id')
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw new Error('Linha mudou ou não está mais disponível; atualize a expedição');
 }
 
 export async function confirmPacked(shipmentId: string): Promise<void> {
@@ -190,14 +205,38 @@ export async function confirmPacked(shipmentId: string): Promise<void> {
     if (shipment.status !== 'picking') throw new Error('Expedição não está em separação');
 
     const lines = demoShipmentLines.filter((line) => line.shipment_id === shipmentId);
-    if (lines.length === 0 || lines.some((line) => Number(line.picked_quantity) <= 0)) {
-      throw new Error('Confirme ao menos uma quantidade separada em todas as linhas');
+    if (lines.length === 0) throw new Error('Expedição não possui linhas');
+
+    let totalPicked = 0;
+    for (const line of lines) {
+      const requested = Number(line.requested_quantity);
+      const picked = Number(line.picked_quantity);
+      if (!Number.isFinite(requested) || requested <= 0 || !Number.isFinite(picked) || picked < 0 || picked > requested) {
+        throw new Error('Quantidade separada inválida');
+      }
+      totalPicked += picked;
+    }
+
+    if (totalPicked === 0) {
+      lines.forEach((line) => {
+        line.reservations_released = true;
+        line.updated_at = new Date().toISOString();
+      });
+      shipment.status = 'cancelled';
+      return;
     }
 
     for (const line of lines) {
-      const product = demoProducts.find((item) => item.id === line.product_id);
-      if (product) product.total_stock = Math.max(0, product.total_stock - Number(line.picked_quantity));
+      const picked = Number(line.picked_quantity);
+      if (picked > 0) {
+        const product = demoProducts.find((item) => item.id === line.product_id);
+        if (!product || product.total_stock < picked) {
+          throw new Error(`Estoque inconsistente para ${product?.name || line.product_id}`);
+        }
+        product.total_stock -= picked;
+      }
       line.reservations_released = true;
+      line.updated_at = new Date().toISOString();
     }
 
     shipment.status = 'packed';
@@ -228,13 +267,16 @@ export async function confirmShipped(shipmentId: string): Promise<void> {
   if (shipment.status !== 'packed') throw new Error('Expedição não está embalada');
 
   const now = new Date().toISOString();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('shipments')
     .update({ status: 'shipped', actual_date: now, completed_at: now })
     .eq('id', shipmentId)
-    .eq('status', 'packed');
+    .eq('status', 'packed')
+    .select('id')
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw new Error('Expedição mudou de status; atualize a tela');
 }
 
 export async function cancelShipment(shipmentId: string): Promise<void> {
@@ -249,6 +291,7 @@ export async function cancelShipment(shipmentId: string): Promise<void> {
       .filter((line) => line.shipment_id === shipmentId)
       .forEach((line) => {
         line.reservations_released = true;
+        line.updated_at = new Date().toISOString();
       });
     shipment.status = 'cancelled';
     return;
@@ -271,11 +314,14 @@ export async function cancelShipment(shipmentId: string): Promise<void> {
     throw new Error(`Expedição não pode ser cancelada no status ${shipment.status}`);
   }
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('shipments')
     .update({ status: 'cancelled' })
     .eq('id', shipmentId)
-    .eq('status', 'pending');
+    .eq('status', 'pending')
+    .select('id')
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw new Error('Expedição mudou de status; atualize a tela');
 }
