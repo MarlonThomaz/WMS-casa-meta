@@ -1,6 +1,6 @@
-# WMS Casa Meta
+# Annona Mercis WMS
 
-Sistema web de gerenciamento de armazém para a operação da Casa Meta, desenvolvido com React, TypeScript, Vite, Supabase e PostgreSQL.
+Sistema web de gerenciamento de armazém desenvolvido com React, TypeScript, Vite, Supabase e PostgreSQL.
 
 ## Estado do projeto
 
