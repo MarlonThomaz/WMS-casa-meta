@@ -16,8 +16,8 @@ import {
   useReceipts,
   useUpdateReceivedQuantity,
 } from '../hooks/useReceiving';
-import { useProducts } from '../hooks/useProducts';
 import { useLocations } from '../hooks/useLocations';
+import { useReferenceLabels } from '../hooks/useReferenceLabels';
 import { useAuth } from '../contexts/AuthContext';
 import ProductSearchSelect from './ProductSearchSelect';
 import type { DBReceipt, ProductWithStock } from '../types';
@@ -188,20 +188,18 @@ function ReceiptDetail({ receiptId, onBack }: { receiptId: string; onBack: () =>
   const { user } = useAuth();
   const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
   const { receipt, loading, error, refresh } = useReceipt(receiptId);
-  const { products } = useProducts();
-  const { locations } = useLocations();
   const { update, loading: updating } = useUpdateReceivedQuantity();
   const { confirm, loading: confirming } = useConfirmReceipt();
   const { cancel, loading: cancelling } = useCancelReceipt();
-
-  const productNames = useMemo(
-    () => new Map(products.map((product) => [product.id, `${product.sku} — ${product.name}`])),
-    [products]
+  const productIds = useMemo(
+    () => receipt?.lines.map((line) => line.product_id) || [],
+    [receipt]
   );
-  const locationNames = useMemo(
-    () => new Map(locations.map((location) => [location.id, location.code])),
-    [locations]
+  const locationIds = useMemo(
+    () => receipt?.lines.flatMap((line) => line.location_id ? [line.location_id] : []) || [],
+    [receipt]
   );
+  const { labels, error: labelError } = useReferenceLabels(productIds, locationIds);
 
   if (loading) return <div className="p-6 text-slate-500">Carregando recebimento...</div>;
 
@@ -233,6 +231,12 @@ function ReceiptDetail({ receiptId, onBack }: { receiptId: string; onBack: () =>
         </span>
       </div>
 
+      {labelError && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+          Não foi possível carregar alguns nomes de produtos ou endereços. Os identificadores originais continuam visíveis.
+        </div>
+      )}
+
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full mobile-cards">
@@ -248,8 +252,8 @@ function ReceiptDetail({ receiptId, onBack }: { receiptId: string; onBack: () =>
             <tbody className="divide-y divide-slate-100">
               {receipt.lines.map((line) => (
                 <tr key={line.id}>
-                  <td data-label="Produto" className="px-4 py-3 text-sm">{productNames.get(line.product_id) || line.product_id}</td>
-                  <td data-label="Destino" className="px-4 py-3 text-sm">{line.location_id ? locationNames.get(line.location_id) || line.location_id : '—'}</td>
+                  <td data-label="Produto" className="px-4 py-3 text-sm">{labels.products[line.product_id] || line.product_id}</td>
+                  <td data-label="Destino" className="px-4 py-3 text-sm">{line.location_id ? labels.locations[line.location_id] || line.location_id : '—'}</td>
                   <td data-label="Esperado" className="px-4 py-3 text-sm text-right">{line.expected_quantity}</td>
                   <td data-label="Já processado" className="px-4 py-3 text-sm text-right">{line.processed_quantity || 0}</td>
                   <td data-label="Recebido" className="px-4 py-3 text-right">
