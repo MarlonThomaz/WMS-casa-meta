@@ -84,6 +84,10 @@ DECLARE
   v_exact_rows BIGINT;
   v_name_rows BIGINT;
   v_limited_rows BIGINT;
+  v_expected_dashboard_products BIGINT;
+  v_dashboard_products BIGINT;
+  v_expected_dashboard_stock NUMERIC;
+  v_dashboard_stock NUMERIC;
   v_started TIMESTAMPTZ;
   v_elapsed INTERVAL;
 BEGIN
@@ -136,6 +140,33 @@ BEGIN
 
   IF v_limited_rows <> 100 THEN
     RAISE EXCEPTION 'LOAD-8.1: limite esperado 100, retornado %', v_limited_rows;
+  END IF;
+
+  -- O dashboard deve agregar no banco e retornar o universo completo,
+  -- sem depender de qualquer limite de linhas da API/PostgREST.
+  SELECT count(*)
+    INTO v_expected_dashboard_products
+    FROM public.products
+   WHERE active = true;
+
+  SELECT COALESCE(SUM(sb.quantity), 0)
+    INTO v_expected_dashboard_stock
+    FROM public.products p
+    LEFT JOIN public.stock_balances sb ON sb.product_id = p.id
+   WHERE p.active = true;
+
+  SELECT total_products, total_stock
+    INTO v_dashboard_products, v_dashboard_stock
+    FROM public.get_dashboard_stats();
+
+  IF v_dashboard_products <> v_expected_dashboard_products THEN
+    RAISE EXCEPTION 'LOAD-8.2: dashboard contou % produtos, esperado %',
+      v_dashboard_products, v_expected_dashboard_products;
+  END IF;
+
+  IF v_dashboard_stock <> v_expected_dashboard_stock THEN
+    RAISE EXCEPTION 'LOAD-8.2: dashboard somou % unidades, esperado %',
+      v_dashboard_stock, v_expected_dashboard_stock;
   END IF;
 END $$;
 
