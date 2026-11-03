@@ -59,15 +59,21 @@ export async function deactivateProduct(id: string): Promise<void> {
   if (isDemoMode) {
     const product = demoProducts.find((item) => item.id === id);
     if (!product) throw new Error('Produto não encontrado');
+    if (!product.active) throw new Error('Produto já está inativo');
     product.active = false;
     product.updated_at = new Date().toISOString();
     return;
   }
 
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('products')
     .update({ active: false, updated_at: new Date().toISOString() })
-    .eq('id', id);
+    .eq('id', id)
+    .eq('active', true)
+    .select('id')
+    .maybeSingle();
+
   if (error) throw error;
+  if (!data) throw new Error('Produto não encontrado ou já está inativo; atualize a tela');
 }
