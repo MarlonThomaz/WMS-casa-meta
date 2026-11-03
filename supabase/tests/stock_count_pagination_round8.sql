@@ -67,16 +67,14 @@ INSERT INTO public.stock_count_lines (
   product_id,
   location_id,
   system_quantity,
-  counted_quantity,
-  unit
+  counted_quantity
 )
 SELECT
   '94000000-0000-0000-0000-000000000001',
   '92000000-0000-0000-0000-000000000001',
   l.id,
   10,
-  NULL,
-  'un'
+  10
 FROM public.locations l
 WHERE l.code LIKE 'COUNT-PERF-L-%';
 
@@ -158,9 +156,7 @@ WITH first_two AS (
 )
 UPDATE public.stock_count_lines scl
 SET counted_quantity = CASE WHEN ft.rn = 1 THEN 10 ELSE 8 END,
-    counted_by = '10000000-0000-0000-0000-000000000002',
-    counted_at = now(),
-    updated_at = now()
+    counted_at = now()
 FROM first_two ft
 WHERE scl.id = ft.id;
 
