@@ -340,6 +340,9 @@ function CreateReceiptModal({
   const [lines, setLines] = useState<DraftLine[]>([
     { product_id: '', expected_quantity: 1, location_id: '' },
   ]);
+  const destinationLocations = locations.filter(
+    (location) => location.status !== 'blocked' && location.status !== 'maintenance'
+  );
 
   const updateLine = (index: number, patch: Partial<DraftLine>) => {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -417,7 +420,7 @@ function CreateReceiptModal({
                   <span className="block mb-1">Destino</span>
                   <select required value={line.location_id} onChange={(e) => updateLine(index, { location_id: e.target.value })} className="w-full border rounded px-2 py-2 bg-white">
                     <option value="">Selecione</option>
-                    {locations.map((location) => <option key={location.id} value={location.id}>{location.code}</option>)}
+                    {destinationLocations.map((location) => <option key={location.id} value={location.id}>{location.code}</option>)}
                   </select>
                 </label>
                 <label className="text-sm">
