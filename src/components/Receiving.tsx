@@ -4,7 +4,6 @@ import {
   CheckCircle,
   ChevronLeft,
   Clock,
-  Package,
   Plus,
   Trash2,
   XCircle,
@@ -20,7 +19,8 @@ import {
 import { useProducts } from '../hooks/useProducts';
 import { useLocations } from '../hooks/useLocations';
 import { useAuth } from '../contexts/AuthContext';
-import type { DBReceipt } from '../types';
+import ProductSearchSelect from './ProductSearchSelect';
+import type { DBReceipt, ProductWithStock } from '../types';
 
 const statusLabel: Record<DBReceipt['status'], string> = {
   pending: 'Pendente',
@@ -38,6 +38,7 @@ const statusClass: Record<DBReceipt['status'], string> = {
 
 type DraftLine = {
   product_id: string;
+  product: ProductWithStock | null;
   expected_quantity: number;
   location_id: string;
 };
@@ -254,7 +255,8 @@ function ReceiptDetail({ receiptId, onBack }: { receiptId: string; onBack: () =>
                   <td data-label="Recebido" className="px-4 py-3 text-right">
                     {editable ? (
                       <input
-                        type="number" inputMode="decimal"
+                        type="number"
+                        inputMode="decimal"
                         min={line.processed_quantity || 0}
                         max={line.expected_quantity}
                         defaultValue={line.received_quantity}
@@ -330,7 +332,6 @@ function CreateReceiptModal({
   onClose: () => void;
   onCreated: (id: string) => void | Promise<void>;
 }) {
-  const { products } = useProducts();
   const { locations } = useLocations();
   const { createNewReceipt, loading } = useCreateReceipt();
   const [supplier, setSupplier] = useState('');
@@ -338,7 +339,7 @@ function CreateReceiptModal({
   const [expectedDate, setExpectedDate] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [lines, setLines] = useState<DraftLine[]>([
-    { product_id: '', expected_quantity: 1, location_id: '' },
+    { product_id: '', product: null, expected_quantity: 1, location_id: '' },
   ]);
   const destinationLocations = locations.filter(
     (location) => location.status !== 'blocked' && location.status !== 'maintenance'
@@ -353,7 +354,7 @@ function CreateReceiptModal({
     setError(null);
 
     try {
-      if (lines.some((line) => !line.product_id || !line.location_id || line.expected_quantity <= 0)) {
+      if (lines.some((line) => !line.product_id || !line.product || !line.location_id || line.expected_quantity <= 0)) {
         throw new Error('Preencha produto, destino e quantidade em todas as linhas.');
       }
 
@@ -361,7 +362,12 @@ function CreateReceiptModal({
         supplier_name: supplier,
         expected_date: expectedDate || undefined,
         dock: dock || undefined,
-        lines,
+        lines: lines.map((line) => ({
+          product_id: line.product_id,
+          expected_quantity: line.expected_quantity,
+          location_id: line.location_id,
+          unit: line.product?.unit_base || 'un',
+        })),
       });
 
       await onCreated(created.id);
@@ -400,7 +406,7 @@ function CreateReceiptModal({
               <h3 className="font-semibold">Itens</h3>
               <button
                 type="button"
-                onClick={() => setLines((current) => [...current, { product_id: '', expected_quantity: 1, location_id: '' }])}
+                onClick={() => setLines((current) => [...current, { product_id: '', product: null, expected_quantity: 1, location_id: '' }])}
                 className="text-sm text-blue-600"
               >
                 + Adicionar item
@@ -409,13 +415,16 @@ function CreateReceiptModal({
 
             {lines.map((line, index) => (
               <div key={index} className="grid md:grid-cols-[1fr_1fr_120px_40px] gap-2 items-end bg-slate-50 p-3 rounded-lg">
-                <label className="text-sm">
+                <div className="text-sm">
                   <span className="block mb-1">Produto</span>
-                  <select required value={line.product_id} onChange={(e) => updateLine(index, { product_id: e.target.value })} className="w-full border rounded px-2 py-2 bg-white">
-                    <option value="">Selecione</option>
-                    {products.map((product) => <option key={product.id} value={product.id}>{product.sku} — {product.name}</option>)}
-                  </select>
-                </label>
+                  <ProductSearchSelect
+                    value={line.product}
+                    onChange={(product) => updateLine(index, {
+                      product,
+                      product_id: product?.id || '',
+                    })}
+                  />
+                </div>
                 <label className="text-sm">
                   <span className="block mb-1">Destino</span>
                   <select required value={line.location_id} onChange={(e) => updateLine(index, { location_id: e.target.value })} className="w-full border rounded px-2 py-2 bg-white">
