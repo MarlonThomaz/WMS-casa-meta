@@ -29,6 +29,36 @@ export type StockCountLine = {
 
 export type StockCountWithLines = StockCount & { lines: StockCountLine[] };
 
+export type StockCountStats = {
+  byStatus: {
+    pending: number;
+    in_progress: number;
+    completed: number;
+    cancelled: number;
+  };
+  byType: {
+    full: number;
+    cycle: number;
+    spot: number;
+    reconciliation: number;
+  };
+  total: number;
+};
+
+export type InventoryAccuracy = {
+  accuracy: number;
+  total_lines: number;
+  accurate_lines: number;
+  discrepancies: number;
+};
+
+const EMPTY_ACCURACY: InventoryAccuracy = {
+  accuracy: 100,
+  total_lines: 0,
+  accurate_lines: 0,
+  discrepancies: 0,
+};
+
 export async function createStockCount(params: {
   count_type: StockCount['count_type'];
   location_id?: string;
@@ -258,7 +288,7 @@ export async function getStockCounts(limit = 100): Promise<StockCount[]> {
   return (data || []) as StockCount[];
 }
 
-export async function getStockCountStats() {
+export async function getStockCountStats(): Promise<StockCountStats> {
   const source = isDemoMode ? demoStockCounts : null;
   if (!isSupabaseConfigured && !isDemoMode) {
     return {
@@ -275,12 +305,26 @@ export async function getStockCountStats() {
     data = result.data || [];
   }
 
-  const byStatus = { pending: 0, in_progress: 0, completed: 0, cancelled: 0 };
-  const byType = { full: 0, cycle: 0, spot: 0, reconciliation: 0 };
+  const byStatus: StockCountStats['byStatus'] = {
+    pending: 0,
+    in_progress: 0,
+    completed: 0,
+    cancelled: 0,
+  };
+  const byType: StockCountStats['byType'] = {
+    full: 0,
+    cycle: 0,
+    spot: 0,
+    reconciliation: 0,
+  };
 
   for (const count of data) {
-    byStatus[count.status as keyof typeof byStatus]++;
-    byType[count.count_type as keyof typeof byType]++;
+    if (count.status in byStatus) {
+      byStatus[count.status as keyof StockCountStats['byStatus']]++;
+    }
+    if (count.count_type in byType) {
+      byType[count.count_type as keyof StockCountStats['byType']]++;
+    }
   }
 
   return { byStatus, byType, total: data.length };
@@ -309,7 +353,7 @@ export async function getStockCountLinesWithDetails(countId: string) {
   return data || [];
 }
 
-export async function getInventoryAccuracy(locationId?: string) {
+export async function getInventoryAccuracy(locationId?: string): Promise<InventoryAccuracy> {
   if (isDemoMode) {
     const completedIds = new Set(
       demoStockCounts.filter((count) => count.status === 'completed').map((count) => count.id)
@@ -318,9 +362,7 @@ export async function getInventoryAccuracy(locationId?: string) {
       (line) => completedIds.has(line.stock_count_id) && (!locationId || line.location_id === locationId)
     );
 
-    if (data.length === 0) {
-      return { accuracy: 100, total_lines: 0, accurate_lines: 0, discrepancies: 0 };
-    }
+    if (data.length === 0) return { ...EMPTY_ACCURACY };
 
     const accurateLines = data.filter(
       (line) => Number(line.system_quantity) === Number(line.counted_quantity)
@@ -334,43 +376,27 @@ export async function getInventoryAccuracy(locationId?: string) {
     };
   }
 
-  if (!isSupabaseConfigured) {
-    return { accuracy: 100, total_lines: 0, accurate_lines: 0, discrepancies: 0 };
-  }
+  if (!isSupabaseConfigured) return { ...EMPTY_ACCURACY };
 
-  const { data: completedCounts, error: countsError } = await supabase
-    .from('stock_counts')
-    .select('id')
-    .eq('status', 'completed');
+  const { data, error } = await supabase.rpc('get_inventory_accuracy', {
+    p_location_id: locationId || null,
+  });
 
-  if (countsError) throw new Error(`Erro ao buscar contagens concluídas: ${countsError.message}`);
-
-  const completedIds = (completedCounts || []).map((count) => count.id);
-  if (completedIds.length === 0) {
-    return { accuracy: 100, total_lines: 0, accurate_lines: 0, discrepancies: 0 };
-  }
-
-  let query = supabase
-    .from('stock_count_lines')
-    .select('system_quantity, counted_quantity')
-    .in('stock_count_id', completedIds);
-
-  if (locationId) query = query.eq('location_id', locationId);
-
-  const { data, error } = await query;
   if (error) throw new Error(`Erro ao calcular precisão: ${error.message}`);
-  if (!data || data.length === 0) {
-    return { accuracy: 100, total_lines: 0, accurate_lines: 0, discrepancies: 0 };
-  }
 
-  const accurateLines = data.filter(
-    (line) => Number(line.system_quantity) === Number(line.counted_quantity)
-  ).length;
+  const row = (data as Array<{
+    accuracy?: number | string;
+    total_lines?: number | string;
+    accurate_lines?: number | string;
+    discrepancies?: number | string;
+  }> | null)?.[0];
+
+  if (!row) return { ...EMPTY_ACCURACY };
 
   return {
-    accuracy: (accurateLines / data.length) * 100,
-    total_lines: data.length,
-    accurate_lines: accurateLines,
-    discrepancies: data.length - accurateLines,
+    accuracy: Number(row.accuracy ?? 100),
+    total_lines: Number(row.total_lines ?? 0),
+    accurate_lines: Number(row.accurate_lines ?? 0),
+    discrepancies: Number(row.discrepancies ?? 0),
   };
 }
