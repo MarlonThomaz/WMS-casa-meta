@@ -297,4 +297,107 @@ BEGIN
   END IF;
 END $$;
 
+-- ========================================
+-- COUNT-8.3: contagem não pode concluir com linhas não confirmadas
+-- e uma tentativa rejeitada não pode deixar ajuste parcial.
+-- ========================================
+DO $$
+DECLARE
+  v_operator UUID := '10000000-0000-0000-0000-000000000002';
+  v_location UUID;
+  v_count UUID;
+  v_count_number TEXT;
+  v_total_before NUMERIC;
+  v_total_after NUMERIC;
+  v_unconfirmed BIGINT;
+  v_movements BIGINT;
+  v_status TEXT;
+  v_failed BOOLEAN := false;
+BEGIN
+  SELECT id INTO STRICT v_location FROM public.locations WHERE code = 'PICK-01';
+
+  SELECT COALESCE(SUM(quantity), 0)
+    INTO v_total_before
+    FROM public.stock_balances
+   WHERE location_id = v_location;
+
+  PERFORM set_config(
+    'request.jwt.claims',
+    jsonb_build_object('sub', v_operator, 'role', 'authenticated')::text,
+    true
+  );
+  PERFORM set_config('wms.internal_status_transition', 'off', true);
+
+  v_count := public.create_stock_count_with_snapshot(
+    'cycle',
+    v_location,
+    'Regressão exige confirmação física'
+  );
+
+  SELECT count_number INTO v_count_number
+    FROM public.stock_counts
+   WHERE id = v_count;
+
+  UPDATE public.stock_counts
+     SET status = 'in_progress'
+   WHERE id = v_count;
+
+  SELECT COUNT(*) INTO v_unconfirmed
+    FROM public.stock_count_lines
+   WHERE stock_count_id = v_count
+     AND counted_at IS NULL;
+
+  IF v_unconfirmed = 0 THEN
+    RAISE EXCEPTION 'COUNT-8.3: snapshot nasceu indevidamente como já contado';
+  END IF;
+
+  -- Cria divergência artificial, mas NÃO confirma fisicamente counted_at.
+  -- Se a conclusão falhar no fim da RPC, todo ajuste intermediário deve ser revertido.
+  UPDATE public.stock_count_lines
+     SET counted_quantity = system_quantity + 1
+   WHERE stock_count_id = v_count;
+
+  BEGIN
+    PERFORM public.process_stock_count_adjustments(v_count);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'Contagem possui linhas ainda não confirmadas fisicamente%' THEN
+      v_failed := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+
+  PERFORM set_config('wms.internal_status_transition', 'off', true);
+
+  IF NOT v_failed THEN
+    RAISE EXCEPTION 'COUNT-8.3: contagem não confirmada foi concluída';
+  END IF;
+
+  SELECT status INTO v_status
+    FROM public.stock_counts
+   WHERE id = v_count;
+
+  IF v_status <> 'in_progress' THEN
+    RAISE EXCEPTION 'COUNT-8.3: status mudou apesar da conclusão rejeitada: %', v_status;
+  END IF;
+
+  SELECT COALESCE(SUM(quantity), 0)
+    INTO v_total_after
+    FROM public.stock_balances
+   WHERE location_id = v_location;
+
+  IF v_total_after <> v_total_before THEN
+    RAISE EXCEPTION 'COUNT-8.3: tentativa rejeitada alterou saldo: antes %, depois %',
+      v_total_before, v_total_after;
+  END IF;
+
+  SELECT COUNT(*) INTO v_movements
+    FROM public.movements
+   WHERE source_reference = v_count_number;
+
+  IF v_movements <> 0 THEN
+    RAISE EXCEPTION 'COUNT-8.3: tentativa rejeitada deixou ajuste órfão';
+  END IF;
+END $$;
+
 ROLLBACK;
