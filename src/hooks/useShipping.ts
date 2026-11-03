@@ -127,11 +127,11 @@ export function useConfirmPickedQuantity() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const update = async (lineId: string, quantity: number) => {
+  const update = async (lineId: string, quantity: number, requestedQuantity: number) => {
     try {
       setLoading(true);
       setError(null);
-      await confirmPickedQuantity(lineId, quantity);
+      await confirmPickedQuantity(lineId, quantity, requestedQuantity);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao atualizar quantidade';
       setError(errorMessage);
