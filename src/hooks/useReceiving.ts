@@ -1,20 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
-  Receipt,
-  ReceiptWithLines,
+  type Receipt,
+  type ReceiptWithLines,
   getReceipts,
   getReceiptById,
-  getReceiptsByStatus,
   createReceiptWithLines,
   updateReceivedQuantity,
   confirmReceipt,
   cancelReceipt,
 } from '../services/receiving';
 
-export function useReceipts(filters?: {
-  status?: Receipt['status'];
-  limit?: number;
-}) {
+export function useReceipts(limit = 100) {
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,12 +19,7 @@ export function useReceipts(filters?: {
     try {
       setLoading(true);
       setError(null);
-
-      const data = filters?.status
-        ? await getReceiptsByStatus(filters.status, filters.limit || 100)
-        : await getReceipts(filters?.limit || 100);
-
-      setReceipts(data);
+      setReceipts(await getReceipts(limit));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar recebimentos');
       console.error('Erro ao carregar recebimentos:', err);
@@ -39,14 +30,9 @@ export function useReceipts(filters?: {
 
   useEffect(() => {
     void loadReceipts();
-  }, [filters?.status, filters?.limit]);
+  }, [limit]);
 
-  return {
-    receipts,
-    loading,
-    error,
-    refresh: loadReceipts,
-  };
+  return { receipts, loading, error, refresh: loadReceipts };
 }
 
 export function useReceipt(id: string | null) {
