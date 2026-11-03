@@ -28,7 +28,7 @@ Recebimento, reserva, picking, packing e expedição continuam implementados com
 
 O projeto está em **estabilização final para piloto web controlado**.
 
-A versão atual de trabalho é a branch `wms-stabilization-round8`.
+A `main` é a branch oficial e incorpora a estabilização Round 8. Novos trabalhos devem partir da `main`.
 
 O núcleo transacional já foi homologado em Supabase hospedado para os principais fluxos de estoque, usuários, permissões, recebimento, expedição, contagem e scanner físico.
 
