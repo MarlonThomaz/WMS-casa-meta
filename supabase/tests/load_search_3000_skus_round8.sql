@@ -105,6 +105,20 @@ DECLARE
   v_blocked_general_rows BIGINT;
   v_source_rows BIGINT;
   v_source_min_available NUMERIC;
+  v_map_page_rows BIGINT;
+  v_map_total BIGINT;
+  v_map_second_page_rows BIGINT;
+  v_map_occupied_rows BIGINT;
+  v_map_occupied_total BIGINT;
+  v_map_blocked_rows BIGINT;
+  v_expected_stats_total BIGINT;
+  v_expected_stats_available BIGINT;
+  v_expected_stats_occupied BIGINT;
+  v_expected_stats_unavailable BIGINT;
+  v_stats_total BIGINT;
+  v_stats_available BIGINT;
+  v_stats_occupied BIGINT;
+  v_stats_unavailable BIGINT;
   v_product_id UUID;
   v_started TIMESTAMPTZ;
   v_elapsed INTERVAL;
@@ -276,6 +290,93 @@ BEGIN
 
   IF v_elapsed > interval '3 seconds' THEN
     RAISE EXCEPTION 'LOAD-8.4: busca de origem por produto excedeu 3s: %', v_elapsed;
+  END IF;
+
+  -- O mapa do armazém deve trazer somente uma página, mas informar o total
+  -- completo da busca e calcular ocupação no PostgreSQL.
+  v_started := clock_timestamp();
+  SELECT count(*), COALESCE(MAX(total_count), 0)
+    INTO v_map_page_rows, v_map_total
+    FROM public.search_locations_with_occupancy('PERF-L', NULL, 50, 0);
+  v_elapsed := clock_timestamp() - v_started;
+
+  IF v_map_page_rows <> 50 OR v_map_total <> 1200 THEN
+    RAISE EXCEPTION 'LOAD-8.5: mapa deveria retornar 50 de 1200 posições, retornou % de %',
+      v_map_page_rows, v_map_total;
+  END IF;
+
+  IF v_elapsed > interval '3 seconds' THEN
+    RAISE EXCEPTION 'LOAD-8.5: mapa paginado excedeu 3s: %', v_elapsed;
+  END IF;
+
+  SELECT count(*)
+    INTO v_map_second_page_rows
+    FROM public.search_locations_with_occupancy('PERF-L', NULL, 50, 50);
+
+  IF v_map_second_page_rows <> 50 THEN
+    RAISE EXCEPTION 'LOAD-8.5: segunda página do mapa deveria ter 50 posições, retornou %',
+      v_map_second_page_rows;
+  END IF;
+
+  SELECT count(*), COALESCE(MAX(total_count), 0)
+    INTO v_map_occupied_rows, v_map_occupied_total
+    FROM public.search_locations_with_occupancy('PERF-L', 'occupied', 50, 0);
+
+  IF v_map_occupied_rows <> 50 OR v_map_occupied_total <> 1199 THEN
+    RAISE EXCEPTION 'LOAD-8.5: filtro ocupado deveria retornar 50 de 1199, retornou % de %',
+      v_map_occupied_rows, v_map_occupied_total;
+  END IF;
+
+  SELECT count(*)
+    INTO v_map_blocked_rows
+    FROM public.search_locations_with_occupancy('PERF-L-0001', 'blocked', 50, 0);
+
+  IF v_map_blocked_rows <> 1 THEN
+    RAISE EXCEPTION 'LOAD-8.5: mapa deveria localizar a posição bloqueada, retornou %',
+      v_map_blocked_rows;
+  END IF;
+
+  WITH location_totals AS (
+    SELECT
+      l.id,
+      l.status,
+      COALESCE(SUM(sb.quantity) FILTER (WHERE sb.quantity > 0), 0)::NUMERIC AS total_quantity
+    FROM public.locations l
+    LEFT JOIN public.stock_balances sb ON sb.location_id = l.id
+    GROUP BY l.id, l.status
+  ),
+  derived AS (
+    SELECT
+      CASE
+        WHEN lt.status IN ('blocked', 'maintenance', 'reserved') THEN lt.status
+        WHEN lt.total_quantity > 0 THEN 'occupied'
+        ELSE 'available'
+      END AS display_status
+    FROM location_totals lt
+  )
+  SELECT
+    COUNT(*)::BIGINT,
+    COUNT(*) FILTER (WHERE display_status = 'available')::BIGINT,
+    COUNT(*) FILTER (WHERE display_status = 'occupied')::BIGINT,
+    COUNT(*) FILTER (WHERE display_status IN ('blocked', 'maintenance'))::BIGINT
+  INTO
+    v_expected_stats_total,
+    v_expected_stats_available,
+    v_expected_stats_occupied,
+    v_expected_stats_unavailable
+  FROM derived;
+
+  SELECT total_locations, available_locations, occupied_locations, unavailable_locations
+    INTO v_stats_total, v_stats_available, v_stats_occupied, v_stats_unavailable
+    FROM public.get_location_map_stats();
+
+  IF v_stats_total <> v_expected_stats_total
+     OR v_stats_available <> v_expected_stats_available
+     OR v_stats_occupied <> v_expected_stats_occupied
+     OR v_stats_unavailable <> v_expected_stats_unavailable THEN
+    RAISE EXCEPTION 'LOAD-8.5: estatísticas do mapa divergiram: obtido (%,%,%,%), esperado (%,%,%,%)',
+      v_stats_total, v_stats_available, v_stats_occupied, v_stats_unavailable,
+      v_expected_stats_total, v_expected_stats_available, v_expected_stats_occupied, v_expected_stats_unavailable;
   END IF;
 END $$;
 
