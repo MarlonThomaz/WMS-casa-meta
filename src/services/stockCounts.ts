@@ -23,8 +23,13 @@ export type StockCountLine = {
   counted_quantity: number;
   difference: number;
   notes?: string;
-  counted_at?: string;
+  counted_at?: string | null;
   created_at: string;
+};
+
+export type StockCountLineWithDetails = StockCountLine & {
+  products?: { id: string; sku: string; name: string; category?: string } | null;
+  locations?: { id: string; code: string; zone: string } | null;
 };
 
 export type StockCountWithLines = StockCount & { lines: StockCountLine[] };
@@ -103,6 +108,7 @@ export async function createStockCount(params: {
         system_quantity: product.total_stock,
         counted_quantity: product.total_stock,
         difference: 0,
+        counted_at: undefined,
         created_at: createdAt,
       });
     }
@@ -141,41 +147,52 @@ export async function updateCountedQuantity(
     if (!line) throw new Error('Linha não encontrada');
     line.counted_quantity = countedQuantity;
     line.difference = countedQuantity - line.system_quantity;
-    line.notes = notes;
+    if (notes !== undefined) line.notes = notes;
     line.counted_at = new Date().toISOString();
     return;
   }
 
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
 
-  const { error } = await supabase
+  const payload: { counted_quantity: number; counted_at: string; notes?: string } = {
+    counted_quantity: countedQuantity,
+    counted_at: new Date().toISOString(),
+  };
+  if (notes !== undefined) payload.notes = notes;
+
+  const { data, error } = await supabase
     .from('stock_count_lines')
-    .update({ counted_quantity: countedQuantity, notes, counted_at: new Date().toISOString() })
-    .eq('id', lineId);
+    .update(payload)
+    .eq('id', lineId)
+    .select('id')
+    .maybeSingle();
 
   if (error) throw new Error(`Erro ao atualizar quantidade: ${error.message}`);
+  if (!data) throw new Error('Linha de contagem não encontrada ou não disponível para alteração');
 }
 
 export async function startStockCount(countId: string): Promise<void> {
   if (isDemoMode) {
     const count = demoStockCounts.find((item) => item.id === countId);
     if (!count) throw new Error('Contagem não encontrada');
-    if (count.status === 'pending') {
-      count.status = 'in_progress';
-      count.operator_id = 'demo-user-id';
-    }
+    if (count.status !== 'pending') throw new Error('Contagem não está pendente');
+    count.status = 'in_progress';
+    count.operator_id = 'demo-user-id';
     return;
   }
 
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('stock_counts')
     .update({ status: 'in_progress' })
     .eq('id', countId)
-    .eq('status', 'pending');
+    .eq('status', 'pending')
+    .select('id')
+    .maybeSingle();
 
   if (error) throw new Error(`Erro ao iniciar contagem: ${error.message}`);
+  if (!data) throw new Error('Contagem não está mais pendente; atualize a tela');
 }
 
 export async function completeStockCount(
@@ -184,13 +201,15 @@ export async function completeStockCount(
   if (isDemoMode) {
     const count = demoStockCounts.find((item) => item.id === countId);
     if (!count) throw new Error('Contagem não encontrada');
-    if (count.status !== 'in_progress' && count.status !== 'pending') {
-      throw new Error('Contagem não está aberta');
-    }
+    if (count.status !== 'in_progress') throw new Error('Contagem não está em andamento');
 
     const lines = demoStockCountLines.filter((line) => line.stock_count_id === countId);
-    let discrepancies = 0;
+    if (lines.length === 0) throw new Error('Contagem não possui linhas');
+    if (lines.some((line) => !line.counted_at)) {
+      throw new Error('Confirme fisicamente todas as linhas antes de concluir a contagem');
+    }
 
+    let discrepancies = 0;
     for (const line of lines) {
       line.difference = Number(line.counted_quantity) - Number(line.system_quantity);
       if (line.difference !== 0) {
@@ -198,7 +217,6 @@ export async function completeStockCount(
         const product = demoProducts.find((item) => item.id === line.product_id);
         if (product) product.total_stock = Math.max(0, product.total_stock + line.difference);
       }
-      line.counted_at ||= new Date().toISOString();
     }
 
     count.status = 'completed';
@@ -226,19 +244,25 @@ export async function cancelStockCount(countId: string): Promise<void> {
   if (isDemoMode) {
     const count = demoStockCounts.find((item) => item.id === countId);
     if (!count) throw new Error('Contagem não encontrada');
-    if (count.status === 'pending' || count.status === 'in_progress') count.status = 'cancelled';
+    if (count.status !== 'pending' && count.status !== 'in_progress') {
+      throw new Error('Contagem não pode mais ser cancelada');
+    }
+    count.status = 'cancelled';
     return;
   }
 
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('stock_counts')
     .update({ status: 'cancelled' })
     .eq('id', countId)
-    .in('status', ['pending', 'in_progress']);
+    .in('status', ['pending', 'in_progress'])
+    .select('id')
+    .maybeSingle();
 
   if (error) throw new Error(`Erro ao cancelar contagem: ${error.message}`);
+  if (!data) throw new Error('Contagem não está mais aberta; atualize a tela');
 }
 
 export async function getStockCountById(id: string): Promise<StockCountWithLines | null> {
@@ -330,7 +354,7 @@ export async function getStockCountStats(): Promise<StockCountStats> {
   return { byStatus, byType, total: data.length };
 }
 
-export async function getStockCountLinesWithDetails(countId: string) {
+export async function getStockCountLinesWithDetails(countId: string): Promise<StockCountLineWithDetails[]> {
   if (isDemoMode) {
     return demoStockCountLines
       .filter((line) => line.stock_count_id === countId)
@@ -350,7 +374,7 @@ export async function getStockCountLinesWithDetails(countId: string) {
     .order('created_at');
 
   if (error) throw new Error(`Erro ao buscar linhas: ${error.message}`);
-  return data || [];
+  return (data || []) as unknown as StockCountLineWithDetails[];
 }
 
 export async function getInventoryAccuracy(locationId?: string): Promise<InventoryAccuracy> {
