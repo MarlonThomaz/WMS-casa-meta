@@ -70,7 +70,7 @@ export default function UserAdmin() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <Users className="w-7 h-7 text-blue-600" />
@@ -108,7 +108,7 @@ export default function UserAdmin() {
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full mobile-cards">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-4 py-3 text-left">Usuário</th>
@@ -124,7 +124,7 @@ export default function UserAdmin() {
 
                 return (
                   <tr key={profile.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3">
+                    <td data-label="Usuário" className="px-4 py-3">
                       <div className="font-medium text-slate-800 flex items-center gap-2">
                         <UserCog className="w-4 h-4 text-slate-400" />
                         {profile.full_name || profile.email}
@@ -132,7 +132,7 @@ export default function UserAdmin() {
                       </div>
                       <div className="text-xs text-slate-500 mt-1">{profile.email}</div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td data-label="Papel" className="px-4 py-3">
                       <select
                         value={profile.role}
                         disabled={saving || isSelf}
@@ -144,7 +144,7 @@ export default function UserAdmin() {
                         ))}
                       </select>
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td data-label="Status" className="px-4 py-3 text-center">
                       <button
                         type="button"
                         disabled={saving || isSelf}
@@ -165,7 +165,7 @@ export default function UserAdmin() {
                         {profile.active ? 'Ativo' : 'Inativo'}
                       </button>
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-500">
+                    <td data-label="Atualizado" className="px-4 py-3 text-sm text-slate-500">
                       {new Date(profile.updated_at).toLocaleString('pt-BR')}
                     </td>
                   </tr>

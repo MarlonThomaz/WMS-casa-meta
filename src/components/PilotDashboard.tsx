@@ -55,7 +55,7 @@ export default function PilotDashboard() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <Activity className="w-7 h-7 text-blue-600" />

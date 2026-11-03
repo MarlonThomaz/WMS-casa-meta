@@ -69,8 +69,8 @@ export default function StockCount() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between gap-4">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
             <ClipboardCheck className="w-7 h-7 text-blue-600" />
@@ -101,7 +101,7 @@ export default function StockCount() {
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full mobile-cards">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-4 py-3 text-left">Número</th>
@@ -115,20 +115,20 @@ export default function StockCount() {
             <tbody className="divide-y divide-slate-100">
               {counts.map((count) => (
                 <tr key={count.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 text-sm font-mono font-medium">{count.count_number}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{typeLabel[count.count_type]}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600">
+                  <td data-label="Número" className="px-4 py-3 text-sm font-mono font-medium">{count.count_number}</td>
+                  <td data-label="Tipo" className="px-4 py-3 text-sm text-slate-600">{typeLabel[count.count_type]}</td>
+                  <td data-label="Escopo" className="px-4 py-3 text-sm text-slate-600">
                     {count.location_id ? locationCodes.get(count.location_id) || count.location_id : 'Todas as localizações'}
                   </td>
-                  <td className="px-4 py-3">
+                  <td data-label="Status" className="px-4 py-3">
                     <span className={`inline-flex px-2.5 py-1 rounded-full text-xs ${statusClass(count.status)}`}>
                       {statusLabel[count.status]}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-slate-600">
+                  <td data-label="Criada em" className="px-4 py-3 text-sm text-slate-600">
                     {new Date(count.created_at).toLocaleString('pt-BR')}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td data-label="Ação" className="px-4 py-3 text-right">
                     <button
                       type="button"
                       onClick={() => setSelectedId(count.id)}
@@ -198,7 +198,7 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <button type="button" onClick={onBack} className="text-blue-600 hover:text-blue-800 mb-2">
@@ -288,7 +288,7 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full mobile-cards">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-4 py-3 text-left">Produto</th>
@@ -308,16 +308,16 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
 
                 return (
                   <tr key={line.id} className={hasDifference ? 'bg-amber-50/60' : ''}>
-                    <td className="px-4 py-3 text-sm">
+                    <td data-label="Produto" className="px-4 py-3 text-sm">
                       <div className="font-medium text-slate-900">{line.products?.name || line.product_id}</div>
                       {line.products?.sku && <div className="text-xs text-slate-500 font-mono">{line.products.sku}</div>}
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">{line.locations?.code || line.location_id}</td>
-                    <td className="px-4 py-3 text-sm text-right">{systemQuantity}</td>
-                    <td className="px-4 py-3 text-right">
+                    <td data-label="Localização" className="px-4 py-3 text-sm text-slate-600">{line.locations?.code || line.location_id}</td>
+                    <td data-label="Snapshot" className="px-4 py-3 text-sm text-right">{systemQuantity}</td>
+                    <td data-label="Contado" className="px-4 py-3 text-right">
                       {count.status === 'in_progress' && canOperate ? (
                         <input
-                          type="number"
+                          type="number" inputMode="decimal"
                           min={0}
                           step="any"
                           defaultValue={countedQuantity}
@@ -343,10 +343,10 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
                         <span className="text-sm">{countedQuantity}</span>
                       )}
                     </td>
-                    <td className={`px-4 py-3 text-sm text-right font-semibold ${difference > 0 ? 'text-green-700' : difference < 0 ? 'text-red-700' : 'text-slate-600'}`}>
+                    <td data-label="Diferença" className={`px-4 py-3 text-sm text-right font-semibold ${difference > 0 ? 'text-green-700' : difference < 0 ? 'text-red-700' : 'text-slate-600'}`}>
                       {difference > 0 ? '+' : ''}{difference}
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td data-label="Resultado" className="px-4 py-3 text-sm">
                       {hasDifference ? (
                         <span className="inline-flex items-center gap-1 text-amber-700">
                           <AlertCircle className="w-4 h-4" /> Divergência
@@ -411,7 +411,7 @@ function CreateStockCountModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-xl max-w-lg w-full">
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90dvh] overflow-y-auto">
         <div className="p-6 border-b border-slate-200">
           <h2 className="text-xl font-bold text-slate-800">Nova contagem física</h2>
           <p className="text-sm text-slate-500 mt-1">O snapshot das linhas é criado automaticamente.</p>

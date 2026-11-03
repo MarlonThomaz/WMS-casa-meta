@@ -16,6 +16,12 @@ const USB_SCAN_RESET_MS = 180;
 
 export default function BarcodeScanner({ onScan, onClose, compact = false }: BarcodeScannerProps) {
   const [scanning, setScanning] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const startingRef = useRef(false);
+  const onScanRef = useRef(onScan);
+  onScanRef.current = onScan;
+  const mountedRef = useRef(true);
+  const lastCameraScan = useRef({ code: '', at: 0 });
   const [error, setError] = useState<string | null>(null);
   const [manualCode, setManualCode] = useState('');
   const [usbState, setUsbState] = useState<UsbScannerState>('idle');
@@ -29,6 +35,7 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
   const usbResetTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
+    mountedRef.current = true;
     const resetUsbBuffer = () => {
       usbBufferRef.current = '';
       usbStartedAtRef.current = 0;
@@ -57,7 +64,7 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
       if (looksLikeScanner) {
         setLastUsbCode(code);
         setUsbState('success');
-        onScan(code);
+        onScanRef.current(code);
         if (navigator.vibrate) navigator.vibrate(120);
         window.setTimeout(() => setUsbState('idle'), 900);
       } else {
@@ -75,6 +82,9 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
 
     const handleUsbKeyDown = (event: KeyboardEvent) => {
       if (event.ctrlKey || event.altKey || event.metaKey) return;
+      // Fields handle their own Enter/Tab; do not intercept mobile typing.
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
 
       if (event.key === 'Enter' || event.key === 'Tab') {
         if (usbBufferRef.current.length > 0) {
@@ -105,6 +115,7 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
     window.addEventListener('keydown', handleUsbKeyDown, true);
 
     return () => {
+      mountedRef.current = false;
       window.removeEventListener('keydown', handleUsbKeyDown, true);
       if (usbResetTimerRef.current !== null) {
         window.clearTimeout(usbResetTimerRef.current);
@@ -113,23 +124,33 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
         scannerRef.current.stop().catch(() => {});
       }
     };
-  }, [onScan]);
+  }, []);
 
   const startScanning = async () => {
+    if (startingRef.current || scannerRef.current?.isScanning) return;
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      setError('A câmera precisa de HTTPS. No acesso por IP/Wi-Fi, use entrada manual ou uma imagem.');
+      return;
+    }
+    startingRef.current = true;
+    setStarting(true);
     try {
       setError(null);
 
-      const scanner = new Html5Qrcode(containerId.current);
+      const scanner = scannerRef.current ?? new Html5Qrcode(containerId.current);
       scannerRef.current = scanner;
 
       await scanner.start(
         { facingMode: 'environment' },
         {
           fps: 10,
-          qrbox: { width: 250, height: 250 },
+          qrbox: (width, height) => ({ width: Math.min(250, width * 0.8), height: Math.min(180, height * 0.7) }),
         },
         (decodedText) => {
-          onScan(decodedText);
+          const now = Date.now();
+          if (!mountedRef.current || (lastCameraScan.current.code === decodedText && now - lastCameraScan.current.at < 1800)) return;
+          lastCameraScan.current = { code: decodedText, at: now };
+          onScanRef.current(decodedText);
           if (navigator.vibrate) {
             navigator.vibrate(200);
           }
@@ -141,11 +162,15 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
         }
       );
 
+      if (!mountedRef.current) { await scanner.stop(); return; }
       setScanning(true);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao iniciar câmera';
       setError(errorMessage);
       console.error('Scanner error:', err);
+    } finally {
+      startingRef.current = false;
+      if (mountedRef.current) setStarting(false);
     }
   };
 
@@ -166,9 +191,11 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
 
     try {
       setError(null);
-      const scanner = new Html5Qrcode(containerId.current);
+      if (scannerRef.current?.isScanning) await stopScanning();
+      const scanner = scannerRef.current ?? new Html5Qrcode(containerId.current);
+      scannerRef.current = scanner;
       const decodedText = await scanner.scanFile(file, true);
-      onScan(decodedText);
+      onScanRef.current(decodedText);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao ler imagem';
       setError(errorMessage);
@@ -246,10 +273,11 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
         {!scanning ? (
           <button
             onClick={startScanning}
+            disabled={starting}
             className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
           >
             <Camera className="w-4 h-4" />
-            Iniciar Câmera
+            {starting ? 'Abrindo câmera...' : 'Iniciar Câmera'}
           </button>
         ) : (
           <button
@@ -280,7 +308,11 @@ export default function BarcodeScanner({ onScan, onClose, compact = false }: Bar
             value={manualCode}
             onChange={(e) => setManualCode(e.target.value)}
             placeholder="Digite o código manualmente..."
-            className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+            aria-label="Código de barras"
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            className="min-w-0 flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
           />
           <button
             type="submit"

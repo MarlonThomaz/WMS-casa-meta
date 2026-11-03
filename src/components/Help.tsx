@@ -40,7 +40,7 @@ export default function Help() {
   const [activeSection, setActiveSection] = useState<Section>('overview');
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <HelpCircle className="w-7 h-7 text-blue-600" />

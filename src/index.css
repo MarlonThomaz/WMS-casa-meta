@@ -1,1 +1,19 @@
 @import "tailwindcss";
+
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; min-width: 320px; }
+button, a, input, select, textarea { touch-action: manipulation; }
+:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
+.wms-main { overflow-wrap: anywhere; padding-bottom: env(safe-area-inset-bottom); }
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea { font-size: 16px !important; min-height: 44px; max-width: 100%; }
+  button, [role="button"] { min-height: 44px; }
+  .wms-main h1 { font-size: 1.35rem; }
+  .mobile-cards, .mobile-cards tbody { display: block; width: 100%; }
+  .mobile-cards thead { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+  .mobile-cards tbody tr { display: block; padding: 0.5rem; border-bottom: 1px solid #cbd5e1; }
+  .mobile-cards tbody td[data-label] { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); align-items: center; gap: 0.75rem; padding: 0.5rem; text-align: right; }
+  .mobile-cards tbody td[data-label]::before { content: attr(data-label); text-align: left; color: #64748b; font-size: 0.8rem; }
+  .mobile-cards td input { justify-self: end; }
+  .mobile-cards td > div { grid-column: 2; }
+}

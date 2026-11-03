@@ -72,7 +72,7 @@ export default function BarcodeKit() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Código de barras</h1>
         <p className="text-slate-500">
@@ -335,10 +335,10 @@ function RegisterPanel({
           <input value={unit} onChange={(e) => setUnit(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
         </Field>
         <Field label="Estoque mínimo">
-          <input type="number" min={0} step="any" value={minStock} onChange={(e) => setMinStock(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+          <input type="number" inputMode="decimal" min={0} step="any" value={minStock} onChange={(e) => setMinStock(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
         </Field>
         <Field label="Estoque máximo">
-          <input type="number" min={0} step="any" value={maxStock} onChange={(e) => setMaxStock(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+          <input type="number" inputMode="decimal" min={0} step="any" value={maxStock} onChange={(e) => setMaxStock(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
         </Field>
         <Field label="Tipo da embalagem">
           <select value={packagingType} onChange={(e) => setPackagingType(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white">
@@ -349,10 +349,10 @@ function RegisterPanel({
           </select>
         </Field>
         <Field label="Unidades por embalagem">
-          <input type="number" min={0.000001} step="any" value={quantityPerPackage} onChange={(e) => setQuantityPerPackage(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+          <input type="number" inputMode="decimal" min={0.000001} step="any" value={quantityPerPackage} onChange={(e) => setQuantityPerPackage(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
         </Field>
         <Field label="Estoque inicial (unidade base)">
-          <input type="number" min={0} step="any" value={initialQuantity} onChange={(e) => setInitialQuantity(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+          <input type="number" inputMode="decimal" min={0} step="any" value={initialQuantity} onChange={(e) => setInitialQuantity(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
         </Field>
       </div>
 
@@ -485,7 +485,7 @@ function TransferPanel({
           </select>
         </Field>
         <Field label="Quantidade (unidade base)">
-          <input type="number" min={0.000001} step="any" max={source?.available_quantity} value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full border rounded-lg px-3 py-2" required />
+          <input type="number" inputMode="decimal" min={0.000001} step="any" max={source?.available_quantity} value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full border rounded-lg px-3 py-2" required />
         </Field>
       </div>
 

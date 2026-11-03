@@ -71,8 +71,8 @@ export default function Receiving() {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between gap-4">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Recebimento</h1>
           <p className="text-slate-500">Ordens reais de recebimento e conferência.</p>
@@ -122,7 +122,7 @@ export default function Receiving() {
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full mobile-cards">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="text-left px-4 py-3">Número</th>
@@ -136,16 +136,16 @@ export default function Receiving() {
             <tbody className="divide-y divide-slate-100">
               {filtered.map((receipt) => (
                 <tr key={receipt.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-mono text-sm">{receipt.receipt_number}</td>
-                  <td className="px-4 py-3 text-sm font-medium text-slate-800">{receipt.supplier_name}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{receipt.expected_date || '—'}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{receipt.dock || '—'}</td>
-                  <td className="px-4 py-3">
+                  <td data-label="Número" className="px-4 py-3 font-mono text-sm">{receipt.receipt_number}</td>
+                  <td data-label="Fornecedor" className="px-4 py-3 text-sm font-medium text-slate-800">{receipt.supplier_name}</td>
+                  <td data-label="Previsto" className="px-4 py-3 text-sm text-slate-600">{receipt.expected_date || '—'}</td>
+                  <td data-label="Doca" className="px-4 py-3 text-sm text-slate-600">{receipt.dock || '—'}</td>
+                  <td data-label="Status" className="px-4 py-3">
                     <span className={`inline-flex px-2 py-1 rounded-full text-xs ${statusClass[receipt.status]}`}>
                       {statusLabel[receipt.status]}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td data-label="Ação" className="px-4 py-3 text-right">
                     <button
                       type="button"
                       onClick={() => setSelectedId(receipt.id)}
@@ -218,8 +218,8 @@ function ReceiptDetail({ receiptId, onBack }: { receiptId: string; onBack: () =>
   const editable = canOperate && (receipt.status === 'pending' || receipt.status === 'partial');
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-start justify-between gap-4">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-blue-600 mb-2">
             <ChevronLeft className="w-4 h-4" /> Voltar
@@ -234,7 +234,7 @@ function ReceiptDetail({ receiptId, onBack }: { receiptId: string; onBack: () =>
 
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full mobile-cards">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="text-left px-4 py-3">Produto</th>
@@ -247,14 +247,14 @@ function ReceiptDetail({ receiptId, onBack }: { receiptId: string; onBack: () =>
             <tbody className="divide-y divide-slate-100">
               {receipt.lines.map((line) => (
                 <tr key={line.id}>
-                  <td className="px-4 py-3 text-sm">{productNames.get(line.product_id) || line.product_id}</td>
-                  <td className="px-4 py-3 text-sm">{line.location_id ? locationNames.get(line.location_id) || line.location_id : '—'}</td>
-                  <td className="px-4 py-3 text-sm text-right">{line.expected_quantity}</td>
-                  <td className="px-4 py-3 text-sm text-right">{line.processed_quantity || 0}</td>
-                  <td className="px-4 py-3 text-right">
+                  <td data-label="Produto" className="px-4 py-3 text-sm">{productNames.get(line.product_id) || line.product_id}</td>
+                  <td data-label="Destino" className="px-4 py-3 text-sm">{line.location_id ? locationNames.get(line.location_id) || line.location_id : '—'}</td>
+                  <td data-label="Esperado" className="px-4 py-3 text-sm text-right">{line.expected_quantity}</td>
+                  <td data-label="Já processado" className="px-4 py-3 text-sm text-right">{line.processed_quantity || 0}</td>
+                  <td data-label="Recebido" className="px-4 py-3 text-right">
                     {editable ? (
                       <input
-                        type="number"
+                        type="number" inputMode="decimal"
                         min={line.processed_quantity || 0}
                         max={line.expected_quantity}
                         defaultValue={line.received_quantity}
@@ -285,7 +285,7 @@ function ReceiptDetail({ receiptId, onBack }: { receiptId: string; onBack: () =>
       </div>
 
       {editable && (
-        <div className="flex justify-end gap-3">
+        <div className="flex flex-wrap justify-end gap-3">
           <button
             type="button"
             disabled={cancelling || confirming}
@@ -422,7 +422,7 @@ function CreateReceiptModal({
                 </label>
                 <label className="text-sm">
                   <span className="block mb-1">Quantidade</span>
-                  <input type="number" min={1} step="any" required value={line.expected_quantity} onChange={(e) => updateLine(index, { expected_quantity: Number(e.target.value) })} className="w-full border rounded px-2 py-2" />
+                  <input type="number" inputMode="decimal" min={1} step="any" required value={line.expected_quantity} onChange={(e) => updateLine(index, { expected_quantity: Number(e.target.value) })} className="w-full border rounded px-2 py-2" />
                 </label>
                 <button type="button" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, i) => i !== index))} className="p-2 text-red-500 disabled:opacity-30">
                   <Trash2 className="w-4 h-4" />

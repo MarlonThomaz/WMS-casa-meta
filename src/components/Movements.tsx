@@ -96,8 +96,8 @@ export default function Movements() {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-start justify-between gap-4">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Movimentações</h1>
           <p className="text-slate-500">Histórico e lançamento transacional de entradas, saídas, transferências e ajustes.</p>
@@ -162,7 +162,7 @@ export default function Movements() {
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full mobile-cards">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="text-left px-4 py-3">Referência</th>
@@ -176,12 +176,12 @@ export default function Movements() {
             <tbody className="divide-y divide-slate-100">
               {filtered.map((movement) => (
                 <tr key={movement.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-mono text-sm">{movement.reference}</td>
-                  <td className="px-4 py-3"><span className={`inline-flex px-2 py-1 rounded-full text-xs ${typeClass(movement.movement_type)}`}>{typeLabel[movement.movement_type]}</span></td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{movement.source_reference || '—'}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{new Date(movement.created_at).toLocaleString('pt-BR')}</td>
-                  <td className="px-4 py-3"><span className={`inline-flex px-2 py-1 rounded-full text-xs ${statusClass(movement.status)}`}>{statusLabel[movement.status]}</span></td>
-                  <td className="px-4 py-3 text-right">
+                  <td data-label="Referência" className="px-4 py-3 font-mono text-sm">{movement.reference}</td>
+                  <td data-label="Tipo" className="px-4 py-3"><span className={`inline-flex px-2 py-1 rounded-full text-xs ${typeClass(movement.movement_type)}`}>{typeLabel[movement.movement_type]}</span></td>
+                  <td data-label="Documento" className="px-4 py-3 text-sm text-slate-600">{movement.source_reference || '—'}</td>
+                  <td data-label="Data" className="px-4 py-3 text-sm text-slate-600">{new Date(movement.created_at).toLocaleString('pt-BR')}</td>
+                  <td data-label="Status" className="px-4 py-3"><span className={`inline-flex px-2 py-1 rounded-full text-xs ${statusClass(movement.status)}`}>{statusLabel[movement.status]}</span></td>
+                  <td data-label="Ação" className="px-4 py-3 text-right">
                     <button type="button" onClick={() => setSelectedId(movement.id)} className="text-sm text-blue-600 font-medium hover:text-blue-800">Ver linhas</button>
                   </td>
                 </tr>
@@ -322,7 +322,7 @@ function CreateMovementModal({ onClose, onCreated }: { onClose: () => void; onCr
                 </label>
                 <label className="text-sm">
                   <span className="block text-slate-600 mb-1">Quantidade</span>
-                  <input type="number" min={0.0001} step="any" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} className="w-full border rounded-lg px-2 py-2" required />
+                  <input type="number" inputMode="decimal" min={0.0001} step="any" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} className="w-full border rounded-lg px-2 py-2" required />
                 </label>
                 <label className="text-sm">
                   <span className="block text-slate-600 mb-1">Origem</span>
@@ -377,7 +377,7 @@ function MovementDetail({ movementId, onBack }: { movementId: string; onBack: ()
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
       <div>
         <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-blue-600 mb-2"><ChevronLeft className="w-4 h-4" /> Voltar</button>
         <div className="flex items-center gap-3 flex-wrap">
@@ -390,18 +390,18 @@ function MovementDetail({ movementId, onBack }: { movementId: string; onBack: ()
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full mobile-cards">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr><th className="text-left px-4 py-3">Produto</th><th className="text-left px-4 py-3">Origem</th><th className="text-left px-4 py-3">Destino</th><th className="text-right px-4 py-3">Quantidade</th><th className="text-left px-4 py-3">Unidade</th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {movement.lines.map((line) => (
                 <tr key={line.id}>
-                  <td className="px-4 py-3 text-sm">{productNames.get(line.product_id) || line.product_id}</td>
-                  <td className="px-4 py-3 text-sm">{line.from_location_id ? locationNames.get(line.from_location_id) || line.from_location_id : '—'}</td>
-                  <td className="px-4 py-3 text-sm">{line.to_location_id ? locationNames.get(line.to_location_id) || line.to_location_id : '—'}</td>
-                  <td className="px-4 py-3 text-sm text-right font-medium">{line.quantity}</td>
-                  <td className="px-4 py-3 text-sm">{line.unit}</td>
+                  <td data-label="Produto" className="px-4 py-3 text-sm">{productNames.get(line.product_id) || line.product_id}</td>
+                  <td data-label="Origem" className="px-4 py-3 text-sm">{line.from_location_id ? locationNames.get(line.from_location_id) || line.from_location_id : '—'}</td>
+                  <td data-label="Destino" className="px-4 py-3 text-sm">{line.to_location_id ? locationNames.get(line.to_location_id) || line.to_location_id : '—'}</td>
+                  <td data-label="Quantidade" className="px-4 py-3 text-sm text-right font-medium">{line.quantity}</td>
+                  <td data-label="Unidade" className="px-4 py-3 text-sm">{line.unit}</td>
                 </tr>
               ))}
               {movement.lines.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-400">Sem linhas registradas.</td></tr>}
