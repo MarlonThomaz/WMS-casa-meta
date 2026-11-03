@@ -203,6 +203,30 @@ jobs:
             IF to_regprocedure('public.get_inventory_accuracy(uuid)') IS NULL THEN
               RAISE EXCEPTION 'get_inventory_accuracy missing';
             END IF;
+            IF to_regprocedure('public.get_dashboard_stats()') IS NULL THEN
+              RAISE EXCEPTION 'get_dashboard_stats missing';
+            END IF;
+            IF to_regprocedure('public.search_products_with_stock(text,integer,integer)') IS NULL THEN
+              RAISE EXCEPTION 'search_products_with_stock missing';
+            END IF;
+            IF to_regprocedure('public.search_locations(text,integer,boolean)') IS NULL THEN
+              RAISE EXCEPTION 'search_locations missing';
+            END IF;
+            IF to_regprocedure('public.search_product_source_locations(uuid,text,integer)') IS NULL THEN
+              RAISE EXCEPTION 'search_product_source_locations missing';
+            END IF;
+            IF to_regprocedure('public.search_locations_with_occupancy(text,text,integer,integer)') IS NULL THEN
+              RAISE EXCEPTION 'search_locations_with_occupancy missing';
+            END IF;
+            IF to_regprocedure('public.get_location_map_stats()') IS NULL THEN
+              RAISE EXCEPTION 'get_location_map_stats missing';
+            END IF;
+            IF to_regprocedure('public.search_stock_count_lines(uuid,text,integer,integer)') IS NULL THEN
+              RAISE EXCEPTION 'search_stock_count_lines missing';
+            END IF;
+            IF to_regprocedure('public.get_stock_count_progress(uuid)') IS NULL THEN
+              RAISE EXCEPTION 'get_stock_count_progress missing';
+            END IF;
           END $$;
           SQL
 
@@ -250,6 +274,10 @@ jobs:
       - name: Execute stock and count regressions
         shell: bash
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/regression_tests_round8_stock_count.sql
+
+      - name: Execute paginated stock count regression
+        shell: bash
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/stock_count_pagination_round8.sql
 
       - name: Execute unavailable location regressions
         shell: bash
