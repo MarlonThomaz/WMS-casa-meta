@@ -259,6 +259,10 @@ jobs:
         shell: bash
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/barcode_registration_round8.sql
 
+      - name: Execute 3000 SKU locator load regression
+        shell: bash
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/load_search_3000_skus_round8.sql
+
       - name: Prepare authenticated grants for RLS simulation
         shell: bash
         run: |
