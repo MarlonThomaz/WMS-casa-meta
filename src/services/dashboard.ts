@@ -23,27 +23,27 @@ export type DashboardStats = {
 
 export async function getDashboardStats(): Promise<DashboardStats> {
   if (isDemoMode) {
-    const active = demoProducts.filter((p) => p.active);
+    const active = demoProducts.filter((product) => product.active);
     const lowStockItems = active
-      .filter((p) => p.total_stock <= p.min_stock)
-      .map((p) => ({
-        id: p.id,
-        sku: p.sku,
-        name: p.name,
-        total_stock: p.total_stock,
-        min_stock: p.min_stock,
-        unit_base: p.unit_base,
+      .filter((product) => product.total_stock <= product.min_stock)
+      .map((product) => ({
+        id: product.id,
+        sku: product.sku,
+        name: product.name,
+        total_stock: product.total_stock,
+        min_stock: product.min_stock,
+        unit_base: product.unit_base,
       }));
 
     return {
       totalProducts: active.length,
-      totalStock: active.reduce((sum, p) => sum + p.total_stock, 0),
+      totalStock: active.reduce((sum, product) => sum + product.total_stock, 0),
       lowStockProducts: lowStockItems.length,
       lowStockItems,
-      occupiedLocations: demoLocations.filter((l) => l.status === 'occupied').length,
+      occupiedLocations: demoLocations.filter((location) => Number(location.total_quantity || 0) > 0).length,
       totalLocations: demoLocations.length,
-      pendingReceipts: demoReceipts.filter((r) => r.status === 'pending' || r.status === 'partial').length,
-      pendingShipments: demoShipments.filter((s) => s.status === 'pending' || s.status === 'picking').length,
+      pendingReceipts: demoReceipts.filter((receipt) => receipt.status === 'pending' || receipt.status === 'partial').length,
+      pendingShipments: demoShipments.filter((shipment) => shipment.status === 'pending' || shipment.status === 'picking').length,
     };
   }
 
@@ -69,8 +69,15 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   const totalProducts = products.length;
   const totalStock = products.reduce((sum, product) => sum + Number(product.total_stock || 0), 0);
 
-  const { data: locations, error: locationsError } = await supabase.from('locations').select('status');
+  const { data: locations, error: locationsError } = await supabase
+    .from('locations')
+    .select('id, stock_balances(quantity)');
   if (locationsError) throw locationsError;
+
+  const occupiedLocations = (locations || []).filter((location) => {
+    const balances = (location.stock_balances || []) as Array<{ quantity: number | string | null }>;
+    return balances.some((balance) => Number(balance.quantity || 0) > 0);
+  }).length;
 
   const { count: pendingReceipts, error: receiptsError } = await supabase
     .from('receipts')
@@ -89,7 +96,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     totalStock,
     lowStockProducts: lowStockItems.length,
     lowStockItems,
-    occupiedLocations: locations?.filter((location) => location.status === 'occupied').length || 0,
+    occupiedLocations,
     totalLocations: locations?.length || 0,
     pendingReceipts: pendingReceipts || 0,
     pendingShipments: pendingShipments || 0,
