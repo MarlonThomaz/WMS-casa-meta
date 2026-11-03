@@ -171,6 +171,7 @@ export type DBAuditEvent = {
 
 export type Page =
   | 'dashboard'
+  | 'locator'
   | 'inventory'
   | 'locations'
   | 'receiving'

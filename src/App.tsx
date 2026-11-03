@@ -5,6 +5,7 @@ import type { Page } from './types';
 import Login from './components/Login';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
+import ProductLocator from './components/ProductLocator';
 import Inventory from './components/Inventory';
 import Locations from './components/Locations';
 import Receiving from './components/Receiving';
@@ -17,9 +18,10 @@ import AuditLog from './components/AuditLog';
 import UserAdmin from './components/UserAdmin';
 import Help from './components/Help';
 
-function renderPage(page: Page) {
+function renderPage(page: Page, onNavigate: (page: Page) => void) {
   switch (page) {
-    case 'dashboard': return <Dashboard />;
+    case 'dashboard': return <Dashboard onNavigate={onNavigate} />;
+    case 'locator': return <ProductLocator />;
     case 'inventory': return <Inventory />;
     case 'locations': return <Locations />;
     case 'receiving': return <Receiving />;
@@ -31,7 +33,7 @@ function renderPage(page: Page) {
     case 'audit': return <AuditLog />;
     case 'users': return <UserAdmin />;
     case 'help': return <Help />;
-    default: return <Dashboard />;
+    default: return <Dashboard onNavigate={onNavigate} />;
   }
 }
 
@@ -67,7 +69,7 @@ export default function App() {
       <main className="wms-main flex-1 min-w-0">
         <header className="sticky top-0 z-30 flex items-center gap-3 bg-slate-900 text-white px-3 py-2 lg:hidden">
           <button type="button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu" aria-controls="wms-navigation" aria-expanded={menuOpen} className="p-2 rounded-lg hover:bg-slate-800"><Menu className="w-6 h-6" /></button>
-          <div className="min-w-0 flex-1"><p className="font-semibold">WMS Casa Meta</p><p className="text-xs text-slate-300 truncate">{user.email} · {user.role}</p></div>
+          <div className="min-w-0 flex-1"><p className="font-semibold">Annona Mercis WMS</p><p className="text-xs text-slate-300 truncate">{user.email} · {user.role}</p></div>
         </header>
         {!online && <div role="status" className="flex items-center gap-2 bg-amber-100 text-amber-950 px-4 py-3 text-sm"><WifiOff className="w-5 h-5 shrink-0" />Sem conexão. As operações precisam de internet; confira os dados ao reconectar.</div>}
         {isDemo && (
@@ -75,7 +77,7 @@ export default function App() {
             <strong>DEMO ISOLADA:</strong> dados fictícios em memória. Você pode testar cadastros e fluxos; tudo volta ao estado inicial ao recarregar a página.
           </div>
         )}
-        {renderPage(currentPage)}
+        {renderPage(currentPage, setCurrentPage)}
       </main>
     </div>
   );

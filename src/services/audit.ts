@@ -14,14 +14,6 @@ const demoAuditEvents: DBAuditEvent[] = [
   },
 ];
 
-/**
- * Eventos autoritativos são gerados pelo banco (RPCs/triggers).
- * O navegador não possui permissão para fabricar eventos de auditoria.
- */
-export async function logAuditEvent(): Promise<void> {
-  console.warn('logAuditEvent é legado: eventos autoritativos são gerados pelo banco.');
-}
-
 export async function getAuditEvents(limit = 200): Promise<DBAuditEvent[]> {
   if (isDemoMode) return demoAuditEvents.map((event) => ({ ...event }));
   if (!isSupabaseConfigured) return [];

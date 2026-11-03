@@ -207,4 +207,197 @@ BEGIN
   END IF;
 END $$;
 
+-- ========================================
+-- COUNT-8.2: precisão considera somente contagens concluídas
+-- e respeita filtro por localização.
+-- ========================================
+DO $$
+DECLARE
+  v_operator UUID := '10000000-0000-0000-0000-000000000002';
+  v_location UUID;
+  v_count UUID;
+  v_line_count BIGINT;
+  v_before_total BIGINT;
+  v_before_accurate BIGINT;
+  v_before_discrepancies BIGINT;
+  v_pending_total BIGINT;
+  v_pending_accurate BIGINT;
+  v_pending_discrepancies BIGINT;
+  v_after_total BIGINT;
+  v_after_accurate BIGINT;
+  v_after_discrepancies BIGINT;
+BEGIN
+  SELECT id INTO STRICT v_location FROM public.locations WHERE code = 'PICK-02';
+
+  PERFORM set_config(
+    'request.jwt.claims',
+    jsonb_build_object('sub', v_operator, 'role', 'authenticated')::text,
+    true
+  );
+  PERFORM set_config('wms.internal_status_transition', 'off', true);
+
+  SELECT total_lines, accurate_lines, discrepancies
+    INTO v_before_total, v_before_accurate, v_before_discrepancies
+    FROM public.get_inventory_accuracy(v_location);
+
+  v_count := public.create_stock_count_with_snapshot(
+    'cycle',
+    v_location,
+    'Regressão da precisão agregada'
+  );
+
+  UPDATE public.stock_count_lines
+     SET counted_quantity = system_quantity + 999,
+         counted_at = NOW()
+   WHERE stock_count_id = v_count;
+
+  SELECT COUNT(*) INTO v_line_count
+    FROM public.stock_count_lines
+   WHERE stock_count_id = v_count;
+
+  IF v_line_count = 0 THEN
+    RAISE EXCEPTION 'COUNT-8.2: fixture não criou linhas para PICK-02';
+  END IF;
+
+  -- Enquanto a contagem estiver pendente, ela não pode alterar a precisão.
+  SELECT total_lines, accurate_lines, discrepancies
+    INTO v_pending_total, v_pending_accurate, v_pending_discrepancies
+    FROM public.get_inventory_accuracy(v_location);
+
+  IF v_pending_total <> v_before_total
+     OR v_pending_accurate <> v_before_accurate
+     OR v_pending_discrepancies <> v_before_discrepancies THEN
+    RAISE EXCEPTION 'COUNT-8.2: contagem pendente afetou a métrica';
+  END IF;
+
+  -- Promove somente a fixture para concluída sem reconciliar estoque;
+  -- o objetivo aqui é testar a leitura agregada, não o processamento da contagem.
+  PERFORM set_config('wms.internal_status_transition', 'on', true);
+  UPDATE public.stock_counts
+     SET status = 'completed', completed_at = NOW()
+   WHERE id = v_count;
+  PERFORM set_config('wms.internal_status_transition', 'off', true);
+
+  SELECT total_lines, accurate_lines, discrepancies
+    INTO v_after_total, v_after_accurate, v_after_discrepancies
+    FROM public.get_inventory_accuracy(v_location);
+
+  IF v_after_total <> v_before_total + v_line_count THEN
+    RAISE EXCEPTION 'COUNT-8.2: total esperado %, recebido %',
+      v_before_total + v_line_count, v_after_total;
+  END IF;
+
+  IF v_after_accurate <> v_before_accurate THEN
+    RAISE EXCEPTION 'COUNT-8.2: linhas divergentes foram contadas como corretas';
+  END IF;
+
+  IF v_after_discrepancies <> v_before_discrepancies + v_line_count THEN
+    RAISE EXCEPTION 'COUNT-8.2: divergências esperadas %, recebidas %',
+      v_before_discrepancies + v_line_count, v_after_discrepancies;
+  END IF;
+END $$;
+
+-- ========================================
+-- COUNT-8.3: contagem não pode concluir com linhas não confirmadas
+-- e uma tentativa rejeitada não pode deixar ajuste parcial.
+-- ========================================
+DO $$
+DECLARE
+  v_operator UUID := '10000000-0000-0000-0000-000000000002';
+  v_location UUID;
+  v_count UUID;
+  v_count_number TEXT;
+  v_total_before NUMERIC;
+  v_total_after NUMERIC;
+  v_unconfirmed BIGINT;
+  v_movements BIGINT;
+  v_status TEXT;
+  v_failed BOOLEAN := false;
+BEGIN
+  SELECT id INTO STRICT v_location FROM public.locations WHERE code = 'PICK-01';
+
+  SELECT COALESCE(SUM(quantity), 0)
+    INTO v_total_before
+    FROM public.stock_balances
+   WHERE location_id = v_location;
+
+  PERFORM set_config(
+    'request.jwt.claims',
+    jsonb_build_object('sub', v_operator, 'role', 'authenticated')::text,
+    true
+  );
+  PERFORM set_config('wms.internal_status_transition', 'off', true);
+
+  v_count := public.create_stock_count_with_snapshot(
+    'cycle',
+    v_location,
+    'Regressão exige confirmação física'
+  );
+
+  SELECT count_number INTO v_count_number
+    FROM public.stock_counts
+   WHERE id = v_count;
+
+  UPDATE public.stock_counts
+     SET status = 'in_progress'
+   WHERE id = v_count;
+
+  SELECT COUNT(*) INTO v_unconfirmed
+    FROM public.stock_count_lines
+   WHERE stock_count_id = v_count
+     AND counted_at IS NULL;
+
+  IF v_unconfirmed = 0 THEN
+    RAISE EXCEPTION 'COUNT-8.3: snapshot nasceu indevidamente como já contado';
+  END IF;
+
+  -- Cria divergência artificial, mas NÃO confirma fisicamente counted_at.
+  -- Se a conclusão falhar no fim da RPC, todo ajuste intermediário deve ser revertido.
+  UPDATE public.stock_count_lines
+     SET counted_quantity = system_quantity + 1
+   WHERE stock_count_id = v_count;
+
+  BEGIN
+    PERFORM public.process_stock_count_adjustments(v_count);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'Contagem possui linhas ainda não confirmadas fisicamente%' THEN
+      v_failed := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+
+  PERFORM set_config('wms.internal_status_transition', 'off', true);
+
+  IF NOT v_failed THEN
+    RAISE EXCEPTION 'COUNT-8.3: contagem não confirmada foi concluída';
+  END IF;
+
+  SELECT status INTO v_status
+    FROM public.stock_counts
+   WHERE id = v_count;
+
+  IF v_status <> 'in_progress' THEN
+    RAISE EXCEPTION 'COUNT-8.3: status mudou apesar da conclusão rejeitada: %', v_status;
+  END IF;
+
+  SELECT COALESCE(SUM(quantity), 0)
+    INTO v_total_after
+    FROM public.stock_balances
+   WHERE location_id = v_location;
+
+  IF v_total_after <> v_total_before THEN
+    RAISE EXCEPTION 'COUNT-8.3: tentativa rejeitada alterou saldo: antes %, depois %',
+      v_total_before, v_total_after;
+  END IF;
+
+  SELECT COUNT(*) INTO v_movements
+    FROM public.movements
+   WHERE source_reference = v_count_number;
+
+  IF v_movements <> 0 THEN
+    RAISE EXCEPTION 'COUNT-8.3: tentativa rejeitada deixou ajuste órfão';
+  END IF;
+END $$;
+
 ROLLBACK;

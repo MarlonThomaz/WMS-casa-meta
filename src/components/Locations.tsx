@@ -1,30 +1,71 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Edit2,
   Loader2,
   MapPin,
   Plus,
+  Search,
   Wrench,
 } from 'lucide-react';
-import { useLocationsWithOccupancy } from '../hooks/useLocations';
+import { useLocationMap } from '../hooks/useLocationMap';
 import { useAuth } from '../contexts/AuthContext';
-import { createLocation, updateLocation } from '../services/locations';
-import type { DBLocation, LocationWithOccupancy } from '../types';
+import {
+  createLocation,
+  updateLocation,
+  type LocationMapItem,
+} from '../services/locations';
+import type { DBLocation } from '../types';
+
+const PAGE_SIZE = 50;
+
+const statusLabel: Record<DBLocation['status'], string> = {
+  available: 'Disponível',
+  occupied: 'Ocupada',
+  reserved: 'Reservada',
+  blocked: 'Bloqueada',
+  maintenance: 'Manutenção',
+};
+
+const typeLabel: Record<DBLocation['location_type'], string> = {
+  storage: 'Armazenagem',
+  picking: 'Picking',
+  staging: 'Staging',
+  receiving: 'Recebimento',
+  shipping: 'Expedição',
+  quarantine: 'Quarentena',
+};
 
 export default function Locations() {
   const { user, isDemo } = useAuth();
-  const { locations, loading, error, refresh } = useLocationsWithOccupancy();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<DBLocation['status'] | null>(null);
+  const [page, setPage] = useState(1);
+  const {
+    locations,
+    total,
+    totalPages,
+    stats,
+    loading,
+    error,
+    refresh,
+  } = useLocationMap(searchTerm, statusFilter, page, PAGE_SIZE);
   const [showCreate, setShowCreate] = useState(false);
-  const [editingLocation, setEditingLocation] = useState<LocationWithOccupancy | null>(null);
+  const [editingLocation, setEditingLocation] = useState<LocationMapItem | null>(null);
 
   const canMaintainLocations = user?.role === 'admin' || user?.role === 'manager';
   const zones = useMemo(
     () => [...new Set(locations.map((location) => location.zone))].sort(),
     [locations]
   );
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const getStatusIcon = (status: DBLocation['status']) => {
     switch (status) {
@@ -54,7 +95,7 @@ export default function Locations() {
     }
   };
 
-  if (loading) {
+  if (loading && locations.length === 0) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -97,17 +138,71 @@ export default function Locations() {
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Stat label="Total" value={locations.length} />
-        <Stat label="Disponíveis" value={locations.filter((location) => location.status === 'available').length} />
-        <Stat label="Ocupadas" value={locations.filter((location) => location.status === 'occupied').length} />
-        <Stat label="Bloqueadas/manutenção" value={locations.filter((location) => location.status === 'blocked' || location.status === 'maintenance').length} />
+        <Stat label="Total" value={stats.totalLocations} />
+        <Stat label="Disponíveis" value={stats.availableLocations} />
+        <Stat label="Ocupadas" value={stats.occupiedLocations} />
+        <Stat label="Bloqueadas/manutenção" value={stats.unavailableLocations} />
       </div>
 
-      <div className="bg-white rounded-xl p-6 border border-slate-200">
-        <h2 className="text-lg font-semibold text-slate-800 mb-4">Mapa do armazém</h2>
+      <div className="grid md:grid-cols-[1fr_230px] gap-3">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(event) => {
+              setSearchTerm(event.target.value);
+              setPage(1);
+            }}
+            placeholder="Buscar código, zona, corredor, rack ou nível..."
+            className="w-full pl-10 pr-10 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+          />
+          {loading && (
+            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-slate-400" />
+          )}
+        </div>
+        <select
+          value={statusFilter || 'all'}
+          onChange={(event) => {
+            setStatusFilter(event.target.value === 'all' ? null : event.target.value as DBLocation['status']);
+            setPage(1);
+          }}
+          className="border border-slate-200 rounded-lg px-3 py-2 bg-white"
+        >
+          <option value="all">Todas as situações</option>
+          <option value="available">Disponíveis</option>
+          <option value="occupied">Ocupadas</option>
+          <option value="reserved">Reservadas</option>
+          <option value="blocked">Bloqueadas</option>
+          <option value="maintenance">Manutenção</option>
+        </select>
+      </div>
+
+      <div className="bg-white rounded-xl p-4 sm:p-6 border border-slate-200">
+        <div className="flex flex-wrap items-end justify-between gap-2 mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">Mapa do armazém</h2>
+            <p className="text-sm text-slate-500">
+              {total} posição(ões) encontrada(s) · página {page} de {totalPages}
+            </p>
+          </div>
+          {(searchTerm.trim() || statusFilter) && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchTerm('');
+                setStatusFilter(null);
+                setPage(1);
+              }}
+              className="text-sm text-blue-600 hover:text-blue-800"
+            >
+              Limpar filtros
+            </button>
+          )}
+        </div>
 
         {zones.length === 0 ? (
-          <div className="py-10 text-center text-slate-400">Nenhuma localização cadastrada.</div>
+          <div className="py-10 text-center text-slate-400">Nenhuma localização encontrada.</div>
         ) : (
           <div className="space-y-6">
             {zones.map((zone) => {
@@ -116,20 +211,18 @@ export default function Locations() {
               return (
                 <section key={zone}>
                   <div className="flex items-center gap-2 mb-3">
-                    <div className="w-8 h-8 bg-slate-800 text-white rounded-lg flex items-center justify-center text-sm font-bold">
+                    <div className="min-w-8 h-8 px-2 bg-slate-800 text-white rounded-lg flex items-center justify-center text-sm font-bold">
                       {zone}
                     </div>
                     <h3 className="font-medium text-slate-700">Zona {zone}</h3>
-                    <span className="text-xs text-slate-400">({zoneLocations.length} posições)</span>
+                    <span className="text-xs text-slate-400">({zoneLocations.length} nesta página)</span>
                   </div>
 
                   <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3">
                     {zoneLocations.map((location) => {
                       const capacity = Number(location.capacity || 0);
                       const totalQuantity = Number(location.total_quantity || 0);
-                      const occupancy = capacity > 0
-                        ? Math.min(100, (totalQuantity / capacity) * 100)
-                        : 0;
+                      const occupancy = Number(location.occupancy_percentage || 0);
 
                       return (
                         <button
@@ -139,15 +232,15 @@ export default function Locations() {
                           className={`relative p-3 rounded-lg border-2 text-left transition-transform ${
                             canMaintainLocations ? 'hover:scale-[1.02]' : 'cursor-default'
                           } ${getStatusColor(location.status)}`}
-                          title={`${location.code} · ${location.location_type} · ${Math.round(occupancy)}%`}
+                          title={`${location.code} · ${typeLabel[location.location_type]} · ${Math.round(occupancy)}%`}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="text-xs font-mono font-bold text-slate-700">{location.code}</p>
-                              <p className="text-[11px] text-slate-500 mt-1">{location.location_type}</p>
+                            <div className="min-w-0">
+                              <p className="text-xs font-mono font-bold text-slate-700 truncate">{location.code}</p>
+                              <p className="text-[11px] text-slate-500 mt-1 truncate">{typeLabel[location.location_type]}</p>
                             </div>
                             {canMaintainLocations ? (
-                              <Edit2 className="w-3.5 h-3.5 text-slate-400" />
+                              <Edit2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                             ) : (
                               getStatusIcon(location.status)
                             )}
@@ -155,8 +248,14 @@ export default function Locations() {
 
                           <div className="mt-3 flex items-center gap-1.5 text-xs text-slate-600">
                             {getStatusIcon(location.status)}
-                            <span>{location.status}</span>
+                            <span>{statusLabel[location.status]}</span>
                           </div>
+
+                          {totalQuantity > 0 && (
+                            <p className="text-[10px] text-slate-500 mt-1">
+                              {location.total_items} SKU(s) · {totalQuantity} un.
+                            </p>
+                          )}
 
                           {capacity > 0 && (
                             <div className="mt-2">
@@ -184,6 +283,32 @@ export default function Locations() {
                 </section>
               );
             })}
+          </div>
+        )}
+
+        {total > 0 && (
+          <div className="mt-6 pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-slate-500">
+              Mostrando {Math.min((page - 1) * PAGE_SIZE + 1, total)}–{Math.min(page * PAGE_SIZE, total)} de {total}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                className="inline-flex items-center gap-1 px-3 py-1.5 border border-slate-200 bg-white rounded-lg text-sm text-slate-700 disabled:opacity-40"
+              >
+                <ChevronLeft className="w-4 h-4" /> Anterior
+              </button>
+              <button
+                type="button"
+                disabled={page >= totalPages || loading}
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                className="inline-flex items-center gap-1 px-3 py-1.5 border border-slate-200 bg-white rounded-lg text-sm text-slate-700 disabled:opacity-40"
+              >
+                Próxima <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -225,7 +350,7 @@ function LocationModal({
   onSubmit,
 }: {
   title: string;
-  initial?: LocationWithOccupancy;
+  initial?: LocationMapItem;
   onClose: () => void;
   onSubmit: (values: LocationFormValues) => Promise<void>;
 }) {
@@ -235,7 +360,7 @@ function LocationModal({
   const [rack, setRack] = useState(initial?.rack || '');
   const [level, setLevel] = useState(initial?.level || '');
   const [locationType, setLocationType] = useState<DBLocation['location_type']>(initial?.location_type || 'storage');
-  const [status, setStatus] = useState<DBLocation['status']>(initial?.status || 'available');
+  const [status, setStatus] = useState<DBLocation['status']>(initial?.stored_status || 'available');
   const [capacity, setCapacity] = useState(initial?.capacity == null ? '' : String(initial.capacity));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -318,7 +443,7 @@ function LocationModal({
                 <option value="quarantine">Quarentena</option>
               </select>
             </Field>
-            <Field label="Status">
+            <Field label="Status administrativo">
               <select value={status} onChange={(e) => setStatus(e.target.value as DBLocation['status'])} className="w-full border rounded-lg px-3 py-2 bg-white">
                 <option value="available">Disponível</option>
                 <option value="occupied">Ocupada</option>
@@ -328,6 +453,12 @@ function LocationModal({
               </select>
             </Field>
           </div>
+
+          {initial && initial.status !== initial.stored_status && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+              Situação física atual: <strong>{statusLabel[initial.status]}</strong>. O campo acima representa o status salvo do endereço; a ocupação é calculada automaticamente pelo estoque existente.
+            </div>
+          )}
         </div>
 
         <div className="p-5 border-t border-slate-200 flex justify-end gap-3">

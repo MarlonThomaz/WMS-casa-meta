@@ -197,6 +197,9 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
     );
   }
 
+  const confirmedLines = lines.filter((line) => Boolean(line.counted_at)).length;
+  const allLinesConfirmed = lines.length > 0 && confirmedLines === lines.length;
+
   return (
     <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -205,7 +208,9 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
             ← Voltar
           </button>
           <h1 className="text-2xl font-bold text-slate-800">Contagem {count.count_number}</h1>
-          <p className="text-slate-500">{typeLabel[count.count_type]} · {lines.length} linhas no snapshot</p>
+          <p className="text-slate-500">
+            {typeLabel[count.count_type]} · {lines.length} linhas no snapshot · {confirmedLines}/{lines.length} confirmadas
+          </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -234,7 +239,8 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
           {canOperate && count.status === 'in_progress' && (
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || !allLinesConfirmed}
+              title={allLinesConfirmed ? 'Concluir contagem' : 'Confirme todas as linhas antes de concluir'}
               onClick={async () => {
                 if (!window.confirm('Concluir a contagem e aplicar as divergências ao estoque?')) return;
                 try {
@@ -249,7 +255,7 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
                   setBusy(false);
                 }
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <CheckCircle className="w-4 h-4" /> Concluir
             </button>
@@ -286,6 +292,12 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
         </div>
       )}
 
+      {count.status === 'in_progress' && !allLinesConfirmed && (
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+          Digite e confirme a quantidade física de cada linha. A contagem só poderá ser concluída depois de {lines.length - confirmedLines} linha(s) restante(s).
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full mobile-cards">
@@ -303,8 +315,9 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
               {lines.map((line) => {
                 const systemQuantity = Number(line.system_quantity);
                 const countedQuantity = Number(line.counted_quantity);
-                const difference = countedQuantity - systemQuantity;
-                const hasDifference = difference !== 0;
+                const isCounted = Boolean(line.counted_at);
+                const difference = isCounted ? countedQuantity - systemQuantity : 0;
+                const hasDifference = isCounted && difference !== 0;
 
                 return (
                   <tr key={line.id} className={hasDifference ? 'bg-amber-50/60' : ''}>
@@ -317,14 +330,27 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
                     <td data-label="Contado" className="px-4 py-3 text-right">
                       {count.status === 'in_progress' && canOperate ? (
                         <input
-                          type="number" inputMode="decimal"
+                          type="number"
+                          inputMode="decimal"
                           min={0}
                           step="any"
-                          defaultValue={countedQuantity}
+                          defaultValue={isCounted ? countedQuantity : ''}
+                          placeholder="Contar"
                           disabled={busy}
                           onBlur={async (event) => {
-                            const value = Number(event.target.value);
-                            if (!Number.isFinite(value) || value < 0 || value === countedQuantity) return;
+                            const rawValue = event.target.value.trim();
+                            if (!rawValue) {
+                              event.target.value = isCounted ? String(countedQuantity) : '';
+                              return;
+                            }
+
+                            const value = Number(rawValue);
+                            if (!Number.isFinite(value) || value < 0) {
+                              event.target.value = isCounted ? String(countedQuantity) : '';
+                              return;
+                            }
+                            if (isCounted && value === countedQuantity) return;
+
                             try {
                               setBusy(true);
                               const { updateCountedQuantity } = await import('../services/stockCounts');
@@ -332,7 +358,7 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
                               await refreshAll();
                             } catch (err) {
                               alert(err instanceof Error ? err.message : 'Erro ao atualizar contagem');
-                              event.target.value = String(countedQuantity);
+                              event.target.value = isCounted ? String(countedQuantity) : '';
                             } finally {
                               setBusy(false);
                             }
@@ -340,14 +366,18 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
                           className="w-24 px-2 py-1 border border-slate-300 rounded text-right"
                         />
                       ) : (
-                        <span className="text-sm">{countedQuantity}</span>
+                        <span className="text-sm">{isCounted ? countedQuantity : '—'}</span>
                       )}
                     </td>
-                    <td data-label="Diferença" className={`px-4 py-3 text-sm text-right font-semibold ${difference > 0 ? 'text-green-700' : difference < 0 ? 'text-red-700' : 'text-slate-600'}`}>
-                      {difference > 0 ? '+' : ''}{difference}
+                    <td data-label="Diferença" className={`px-4 py-3 text-sm text-right font-semibold ${isCounted ? (difference > 0 ? 'text-green-700' : difference < 0 ? 'text-red-700' : 'text-slate-600') : 'text-slate-400'}`}>
+                      {isCounted ? `${difference > 0 ? '+' : ''}${difference}` : '—'}
                     </td>
                     <td data-label="Resultado" className="px-4 py-3 text-sm">
-                      {hasDifference ? (
+                      {!isCounted ? (
+                        <span className="inline-flex items-center gap-1 text-slate-500">
+                          <AlertCircle className="w-4 h-4" /> Não contado
+                        </span>
+                      ) : hasDifference ? (
                         <span className="inline-flex items-center gap-1 text-amber-700">
                           <AlertCircle className="w-4 h-4" /> Divergência
                         </span>

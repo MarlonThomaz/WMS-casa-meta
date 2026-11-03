@@ -1,48 +1,54 @@
 import { supabase, isSupabaseConfigured, isDemoMode } from '../lib/supabase';
-import { demoId, demoMovementLines, demoMovements, demoProducts } from '../demoStore';
+import { demoId, demoLocations, demoMovementLines, demoMovements, demoProducts } from '../demoStore';
 import type { DBMovement, DBMovementLine, MovementWithDetails } from '../types';
 
 export type Movement = DBMovement;
 export type MovementWithLines = MovementWithDetails;
 
 export async function getMovements(limit = 100): Promise<DBMovement[]> {
-  if (isDemoMode) return demoMovements.slice(0, limit).map((m) => ({ ...m }));
+  if (isDemoMode) return demoMovements.slice(0, limit).map((movement) => ({ ...movement }));
   if (!isSupabaseConfigured) return [];
-  const { data, error } = await supabase.from('movements').select('*').order('created_at', { ascending: false }).limit(limit);
-  if (error) throw error;
-  return data || [];
-}
 
-export async function getMovementsByType(type: DBMovement['movement_type'], limit = 100): Promise<DBMovement[]> {
-  if (isDemoMode) return demoMovements.filter((m) => m.movement_type === type).slice(0, limit).map((m) => ({ ...m }));
-  if (!isSupabaseConfigured) return [];
-  const { data, error } = await supabase.from('movements').select('*').eq('movement_type', type).order('created_at', { ascending: false }).limit(limit);
-  if (error) throw error;
-  return data || [];
-}
+  const { data, error } = await supabase
+    .from('movements')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
 
-export async function getMovementsByStatus(status: DBMovement['status'], limit = 100): Promise<DBMovement[]> {
-  if (isDemoMode) return demoMovements.filter((m) => m.status === status).slice(0, limit).map((m) => ({ ...m }));
-  if (!isSupabaseConfigured) return [];
-  const { data, error } = await supabase.from('movements').select('*').eq('status', status).order('created_at', { ascending: false }).limit(limit);
   if (error) throw error;
   return data || [];
 }
 
 export async function getMovementById(id: string): Promise<MovementWithDetails | null> {
   if (isDemoMode) {
-    const movement = demoMovements.find((m) => m.id === id);
+    const movement = demoMovements.find((item) => item.id === id);
     if (!movement) return null;
-    return { ...movement, lines: demoMovementLines.filter((l) => l.movement_id === id).map((l) => ({ ...l })) };
+    return {
+      ...movement,
+      lines: demoMovementLines.filter((line) => line.movement_id === id).map((line) => ({ ...line })),
+    };
   }
+
   if (!isSupabaseConfigured) return null;
-  const { data: movement, error: movementError } = await supabase.from('movements').select('*').eq('id', id).single();
+
+  const { data: movement, error: movementError } = await supabase
+    .from('movements')
+    .select('*')
+    .eq('id', id)
+    .single();
+
   if (movementError) {
     if (movementError.code === 'PGRST116') return null;
     throw movementError;
   }
   if (!movement) return null;
-  const { data: lines, error: linesError } = await supabase.from('movement_lines').select('*').eq('movement_id', id).order('created_at');
+
+  const { data: lines, error: linesError } = await supabase
+    .from('movement_lines')
+    .select('*')
+    .eq('movement_id', id)
+    .order('created_at');
+
   if (linesError) throw linesError;
   return { ...movement, lines: lines || [] };
 }
@@ -61,16 +67,61 @@ export async function createAndProcessMovement(params: {
   }>;
 }): Promise<MovementWithDetails> {
   if (params.lines.length === 0) throw new Error('Movimentação precisa ter ao menos uma linha');
+
   for (const line of params.lines) {
-    if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error('Quantidade deve ser maior que zero');
+    if (!line.product_id) throw new Error('Produto é obrigatório');
+    if (!Number.isFinite(line.quantity) || line.quantity <= 0) {
+      throw new Error('Quantidade deve ser maior que zero');
+    }
+
+    if (params.movement_type === 'inbound' && !line.to_location_id) {
+      throw new Error('Localização de destino é obrigatória para entrada');
+    }
+    if (params.movement_type === 'outbound' && !line.from_location_id) {
+      throw new Error('Localização de origem é obrigatória para saída');
+    }
+    if (params.movement_type === 'transfer') {
+      if (!line.from_location_id || !line.to_location_id) {
+        throw new Error('Origem e destino são obrigatórios para transferência');
+      }
+      if (line.from_location_id === line.to_location_id) {
+        throw new Error('Origem e destino não podem ser iguais');
+      }
+    }
+    if (params.movement_type === 'adjustment') {
+      const hasFrom = Boolean(line.from_location_id);
+      const hasTo = Boolean(line.to_location_id);
+      if (hasFrom === hasTo) {
+        throw new Error('Ajuste deve informar somente origem ou somente destino');
+      }
+    }
   }
 
   if (isDemoMode) {
     for (const line of params.lines) {
-      const product = demoProducts.find((p) => p.id === line.product_id);
+      const product = demoProducts.find((item) => item.id === line.product_id);
       if (!product) throw new Error('Produto não encontrado');
-      const removesStock = params.movement_type === 'outbound' || (params.movement_type === 'adjustment' && !!line.from_location_id && !line.to_location_id);
-      if (removesStock && product.total_stock < line.quantity) throw new Error(`Estoque insuficiente para ${product.name}`);
+
+      if (line.from_location_id && !demoLocations.some((location) => location.id === line.from_location_id)) {
+        throw new Error('Localização de origem não encontrada');
+      }
+
+      if (line.to_location_id) {
+        const destination = demoLocations.find((location) => location.id === line.to_location_id);
+        if (!destination) throw new Error('Localização de destino não encontrada');
+        if (destination.status === 'blocked' || destination.status === 'maintenance') {
+          throw new Error(`Localização de destino ${destination.code} está indisponível (${destination.status})`);
+        }
+      }
+
+      const removesStock =
+        params.movement_type === 'outbound' ||
+        params.movement_type === 'transfer' ||
+        (params.movement_type === 'adjustment' && Boolean(line.from_location_id) && !line.to_location_id);
+
+      if (removesStock && product.total_stock < line.quantity) {
+        throw new Error(`Estoque insuficiente para ${product.name}`);
+      }
     }
 
     const id = demoId('movement');
@@ -87,6 +138,7 @@ export async function createAndProcessMovement(params: {
       created_by: 'demo-user-id',
       operator_id: 'demo-user-id',
     };
+
     const lines: DBMovementLine[] = params.lines.map((line) => ({
       id: demoId('movement-line'),
       movement_id: id,
@@ -100,45 +152,36 @@ export async function createAndProcessMovement(params: {
     }));
 
     for (const line of lines) {
-      const product = demoProducts.find((p) => p.id === line.product_id);
+      const product = demoProducts.find((item) => item.id === line.product_id);
       if (!product) continue;
+
       if (params.movement_type === 'inbound') product.total_stock += Number(line.quantity);
       else if (params.movement_type === 'outbound') product.total_stock -= Number(line.quantity);
       else if (params.movement_type === 'adjustment') {
         if (line.to_location_id && !line.from_location_id) product.total_stock += Number(line.quantity);
         if (line.from_location_id && !line.to_location_id) product.total_stock -= Number(line.quantity);
       }
+      // Transferência mantém o estoque total; apenas a localização muda no backend real.
     }
 
     demoMovements.unshift(movement);
     demoMovementLines.push(...lines);
-    return { ...movement, lines: lines.map((l) => ({ ...l })) };
+    return { ...movement, lines: lines.map((line) => ({ ...line })) };
   }
 
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+
   const { data: movementId, error } = await supabase.rpc('create_and_process_movement', {
     p_movement_type: params.movement_type,
     p_source_reference: params.source_reference || null,
     p_notes: params.notes || null,
     p_lines: params.lines,
   });
+
   if (error) throw error;
   if (!movementId) throw new Error('Banco não retornou o ID da movimentação');
+
   const result = await getMovementById(movementId as string);
   if (!result) throw new Error('Movimentação criada, mas não pôde ser recarregada');
   return result;
-}
-
-export async function cancelMovement(id: string, reason?: string): Promise<void> {
-  if (isDemoMode) {
-    const movement = demoMovements.find((m) => m.id === id);
-    if (!movement) throw new Error('Movimentação não encontrada');
-    if (movement.status !== 'pending' && movement.status !== 'in_progress') throw new Error('Apenas movimentações abertas podem ser canceladas');
-    movement.status = 'cancelled';
-    movement.notes = reason || 'Movimentação cancelada';
-    return;
-  }
-  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  const { error } = await supabase.from('movements').update({ status: 'cancelled', notes: reason || 'Movimentação cancelada' }).eq('id', id).in('status', ['pending', 'in_progress']);
-  if (error) throw error;
 }

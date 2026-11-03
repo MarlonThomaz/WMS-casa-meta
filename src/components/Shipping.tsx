@@ -20,10 +20,12 @@ import {
   useShipments,
   useStartPicking,
 } from '../hooks/useShipping';
-import { useProducts } from '../hooks/useProducts';
-import { useLocations } from '../hooks/useLocations';
+import { useReferenceLabels } from '../hooks/useReferenceLabels';
 import { useAuth } from '../contexts/AuthContext';
-import type { DBShipment } from '../types';
+import ProductSearchSelect from './ProductSearchSelect';
+import LocationSearchSelect from './LocationSearchSelect';
+import type { LocationSearchOption } from '../services/locationSearch';
+import type { DBShipment, ProductWithStock } from '../types';
 
 const statusLabel: Record<DBShipment['status'], string> = {
   pending: 'Pendente',
@@ -50,9 +52,19 @@ const priorityLabel: Record<DBShipment['priority'], string> = {
 
 type DraftLine = {
   product_id: string;
+  product: ProductWithStock | null;
   requested_quantity: number;
   from_location_id: string;
+  from_location: LocationSearchOption | null;
 };
+
+const emptyDraftLine = (): DraftLine => ({
+  product_id: '',
+  product: null,
+  requested_quantity: 1,
+  from_location_id: '',
+  from_location: null,
+});
 
 export default function Shipping() {
   const { user } = useAuth();
@@ -199,22 +211,20 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
   const { user } = useAuth();
   const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
   const { shipment, loading, error, refresh } = useShipment(shipmentId);
-  const { products } = useProducts();
-  const { locations } = useLocations();
   const { start, loading: starting } = useStartPicking();
   const { update, loading: updating } = useConfirmPickedQuantity();
   const { confirm: pack, loading: packing } = useConfirmPacked();
   const { confirm: ship, loading: shipping } = useConfirmShipped();
   const { cancel, loading: cancelling } = useCancelShipment();
-
-  const productNames = useMemo(
-    () => new Map(products.map((product) => [product.id, `${product.sku} — ${product.name}`])),
-    [products]
+  const productIds = useMemo(
+    () => shipment?.lines.map((line) => line.product_id) || [],
+    [shipment]
   );
-  const locationNames = useMemo(
-    () => new Map(locations.map((location) => [location.id, location.code])),
-    [locations]
+  const locationIds = useMemo(
+    () => shipment?.lines.flatMap((line) => line.from_location_id ? [line.from_location_id] : []) || [],
+    [shipment]
   );
+  const { labels, error: labelError } = useReferenceLabels(productIds, locationIds);
 
   if (loading) return <div className="p-6 text-slate-500">Carregando expedição...</div>;
   if (error || !shipment) {
@@ -245,6 +255,12 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
         </span>
       </div>
 
+      {labelError && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+          Não foi possível carregar alguns nomes de produtos ou endereços. Os identificadores originais continuam visíveis.
+        </div>
+      )}
+
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full mobile-cards">
@@ -259,13 +275,14 @@ function ShipmentDetail({ shipmentId, onBack }: { shipmentId: string; onBack: ()
             <tbody className="divide-y divide-slate-100">
               {shipment.lines.map((line) => (
                 <tr key={line.id}>
-                  <td data-label="Produto" className="px-4 py-3 text-sm">{productNames.get(line.product_id) || line.product_id}</td>
-                  <td data-label="Origem" className="px-4 py-3 text-sm">{line.from_location_id ? locationNames.get(line.from_location_id) || line.from_location_id : '—'}</td>
+                  <td data-label="Produto" className="px-4 py-3 text-sm">{labels.products[line.product_id] || line.product_id}</td>
+                  <td data-label="Origem" className="px-4 py-3 text-sm">{line.from_location_id ? labels.locations[line.from_location_id] || line.from_location_id : '—'}</td>
                   <td data-label="Solicitado" className="px-4 py-3 text-sm text-right">{line.requested_quantity}</td>
                   <td data-label="Separado" className="px-4 py-3 text-right">
                     {shipment.status === 'picking' && canOperate ? (
                       <input
-                        type="number" inputMode="decimal"
+                        type="number"
+                        inputMode="decimal"
                         min={0}
                         max={line.requested_quantity}
                         step="any"
@@ -380,17 +397,13 @@ function CreateShipmentModal({
   onClose: () => void;
   onCreated: (id: string) => void | Promise<void>;
 }) {
-  const { products } = useProducts();
-  const { locations } = useLocations();
   const { createNewShipment, loading } = useCreateShipment();
   const [customer, setCustomer] = useState('');
   const [carrier, setCarrier] = useState('');
   const [priority, setPriority] = useState<DBShipment['priority']>('medium');
   const [expectedDate, setExpectedDate] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [lines, setLines] = useState<DraftLine[]>([
-    { product_id: '', requested_quantity: 1, from_location_id: '' },
-  ]);
+  const [lines, setLines] = useState<DraftLine[]>([emptyDraftLine()]);
 
   const updateLine = (index: number, patch: Partial<DraftLine>) => {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -401,8 +414,13 @@ function CreateShipmentModal({
     setError(null);
 
     try {
-      if (lines.some((line) => !line.product_id || !line.from_location_id || line.requested_quantity <= 0)) {
-        throw new Error('Preencha produto, origem e quantidade em todas as linhas.');
+      for (const line of lines) {
+        if (!line.product_id || !line.product || !line.from_location_id || !line.from_location || line.requested_quantity <= 0) {
+          throw new Error('Preencha produto, origem e quantidade em todas as linhas.');
+        }
+        if (line.from_location.available_quantity !== undefined && line.requested_quantity > line.from_location.available_quantity) {
+          throw new Error(`Quantidade solicitada maior que o saldo disponível em ${line.from_location.code}.`);
+        }
       }
 
       const created = await createNewShipment({
@@ -410,7 +428,12 @@ function CreateShipmentModal({
         carrier: carrier || undefined,
         priority,
         expected_date: expectedDate || undefined,
-        lines,
+        lines: lines.map((line) => ({
+          product_id: line.product_id,
+          requested_quantity: line.requested_quantity,
+          from_location_id: line.from_location_id,
+          unit: line.product?.unit_base || 'un',
+        })),
       });
 
       await onCreated(created.id);
@@ -456,27 +479,41 @@ function CreateShipmentModal({
           <div className="space-y-3">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Itens</h3>
-              <button type="button" onClick={() => setLines((current) => [...current, { product_id: '', requested_quantity: 1, from_location_id: '' }])} className="text-sm text-blue-600">
+              <button
+                type="button"
+                onClick={() => setLines((current) => [...current, emptyDraftLine()])}
+                className="text-sm text-blue-600"
+              >
                 + Adicionar item
               </button>
             </div>
 
             {lines.map((line, index) => (
               <div key={index} className="grid md:grid-cols-[1fr_1fr_120px_40px] gap-2 items-end bg-slate-50 p-3 rounded-lg">
-                <label className="text-sm">
+                <div className="text-sm">
                   <span className="block mb-1">Produto</span>
-                  <select required value={line.product_id} onChange={(e) => updateLine(index, { product_id: e.target.value })} className="w-full border rounded px-2 py-2 bg-white">
-                    <option value="">Selecione</option>
-                    {products.map((product) => <option key={product.id} value={product.id}>{product.sku} — {product.name}</option>)}
-                  </select>
-                </label>
-                <label className="text-sm">
+                  <ProductSearchSelect
+                    value={line.product}
+                    onChange={(product) => updateLine(index, {
+                      product,
+                      product_id: product?.id || '',
+                      from_location_id: '',
+                      from_location: null,
+                    })}
+                  />
+                </div>
+                <div className="text-sm">
                   <span className="block mb-1">Origem</span>
-                  <select required value={line.from_location_id} onChange={(e) => updateLine(index, { from_location_id: e.target.value })} className="w-full border rounded px-2 py-2 bg-white">
-                    <option value="">Selecione</option>
-                    {locations.map((location) => <option key={location.id} value={location.id}>{location.code}</option>)}
-                  </select>
-                </label>
+                  <LocationSearchSelect
+                    mode="source"
+                    productId={line.product_id}
+                    value={line.from_location}
+                    onChange={(location) => updateLine(index, {
+                      from_location: location,
+                      from_location_id: location?.id || '',
+                    })}
+                  />
+                </div>
                 <label className="text-sm">
                   <span className="block mb-1">Quantidade</span>
                   <input type="number" inputMode="decimal" min={1} step="any" required value={line.requested_quantity} onChange={(e) => updateLine(index, { requested_quantity: Number(e.target.value) })} className="w-full border rounded px-2 py-2" />

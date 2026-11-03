@@ -4,7 +4,6 @@ import {
   CheckCircle,
   ChevronLeft,
   Clock,
-  Package,
   Plus,
   Trash2,
   XCircle,
@@ -17,10 +16,12 @@ import {
   useReceipts,
   useUpdateReceivedQuantity,
 } from '../hooks/useReceiving';
-import { useProducts } from '../hooks/useProducts';
-import { useLocations } from '../hooks/useLocations';
+import { useReferenceLabels } from '../hooks/useReferenceLabels';
 import { useAuth } from '../contexts/AuthContext';
-import type { DBReceipt } from '../types';
+import ProductSearchSelect from './ProductSearchSelect';
+import LocationSearchSelect from './LocationSearchSelect';
+import type { LocationSearchOption } from '../services/locationSearch';
+import type { DBReceipt, ProductWithStock } from '../types';
 
 const statusLabel: Record<DBReceipt['status'], string> = {
   pending: 'Pendente',
@@ -38,9 +39,19 @@ const statusClass: Record<DBReceipt['status'], string> = {
 
 type DraftLine = {
   product_id: string;
+  product: ProductWithStock | null;
   expected_quantity: number;
   location_id: string;
+  location: LocationSearchOption | null;
 };
+
+const emptyDraftLine = (): DraftLine => ({
+  product_id: '',
+  product: null,
+  expected_quantity: 1,
+  location_id: '',
+  location: null,
+});
 
 export default function Receiving() {
   const { user } = useAuth();
@@ -187,20 +198,18 @@ function ReceiptDetail({ receiptId, onBack }: { receiptId: string; onBack: () =>
   const { user } = useAuth();
   const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
   const { receipt, loading, error, refresh } = useReceipt(receiptId);
-  const { products } = useProducts();
-  const { locations } = useLocations();
   const { update, loading: updating } = useUpdateReceivedQuantity();
   const { confirm, loading: confirming } = useConfirmReceipt();
   const { cancel, loading: cancelling } = useCancelReceipt();
-
-  const productNames = useMemo(
-    () => new Map(products.map((product) => [product.id, `${product.sku} — ${product.name}`])),
-    [products]
+  const productIds = useMemo(
+    () => receipt?.lines.map((line) => line.product_id) || [],
+    [receipt]
   );
-  const locationNames = useMemo(
-    () => new Map(locations.map((location) => [location.id, location.code])),
-    [locations]
+  const locationIds = useMemo(
+    () => receipt?.lines.flatMap((line) => line.location_id ? [line.location_id] : []) || [],
+    [receipt]
   );
+  const { labels, error: labelError } = useReferenceLabels(productIds, locationIds);
 
   if (loading) return <div className="p-6 text-slate-500">Carregando recebimento...</div>;
 
@@ -232,6 +241,12 @@ function ReceiptDetail({ receiptId, onBack }: { receiptId: string; onBack: () =>
         </span>
       </div>
 
+      {labelError && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+          Não foi possível carregar alguns nomes de produtos ou endereços. Os identificadores originais continuam visíveis.
+        </div>
+      )}
+
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full mobile-cards">
@@ -247,14 +262,15 @@ function ReceiptDetail({ receiptId, onBack }: { receiptId: string; onBack: () =>
             <tbody className="divide-y divide-slate-100">
               {receipt.lines.map((line) => (
                 <tr key={line.id}>
-                  <td data-label="Produto" className="px-4 py-3 text-sm">{productNames.get(line.product_id) || line.product_id}</td>
-                  <td data-label="Destino" className="px-4 py-3 text-sm">{line.location_id ? locationNames.get(line.location_id) || line.location_id : '—'}</td>
+                  <td data-label="Produto" className="px-4 py-3 text-sm">{labels.products[line.product_id] || line.product_id}</td>
+                  <td data-label="Destino" className="px-4 py-3 text-sm">{line.location_id ? labels.locations[line.location_id] || line.location_id : '—'}</td>
                   <td data-label="Esperado" className="px-4 py-3 text-sm text-right">{line.expected_quantity}</td>
                   <td data-label="Já processado" className="px-4 py-3 text-sm text-right">{line.processed_quantity || 0}</td>
                   <td data-label="Recebido" className="px-4 py-3 text-right">
                     {editable ? (
                       <input
-                        type="number" inputMode="decimal"
+                        type="number"
+                        inputMode="decimal"
                         min={line.processed_quantity || 0}
                         max={line.expected_quantity}
                         defaultValue={line.received_quantity}
@@ -330,16 +346,12 @@ function CreateReceiptModal({
   onClose: () => void;
   onCreated: (id: string) => void | Promise<void>;
 }) {
-  const { products } = useProducts();
-  const { locations } = useLocations();
   const { createNewReceipt, loading } = useCreateReceipt();
   const [supplier, setSupplier] = useState('');
   const [dock, setDock] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [lines, setLines] = useState<DraftLine[]>([
-    { product_id: '', expected_quantity: 1, location_id: '' },
-  ]);
+  const [lines, setLines] = useState<DraftLine[]>([emptyDraftLine()]);
 
   const updateLine = (index: number, patch: Partial<DraftLine>) => {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -350,7 +362,7 @@ function CreateReceiptModal({
     setError(null);
 
     try {
-      if (lines.some((line) => !line.product_id || !line.location_id || line.expected_quantity <= 0)) {
+      if (lines.some((line) => !line.product_id || !line.product || !line.location_id || !line.location || line.expected_quantity <= 0)) {
         throw new Error('Preencha produto, destino e quantidade em todas as linhas.');
       }
 
@@ -358,7 +370,12 @@ function CreateReceiptModal({
         supplier_name: supplier,
         expected_date: expectedDate || undefined,
         dock: dock || undefined,
-        lines,
+        lines: lines.map((line) => ({
+          product_id: line.product_id,
+          expected_quantity: line.expected_quantity,
+          location_id: line.location_id,
+          unit: line.product?.unit_base || 'un',
+        })),
       });
 
       await onCreated(created.id);
@@ -397,7 +414,7 @@ function CreateReceiptModal({
               <h3 className="font-semibold">Itens</h3>
               <button
                 type="button"
-                onClick={() => setLines((current) => [...current, { product_id: '', expected_quantity: 1, location_id: '' }])}
+                onClick={() => setLines((current) => [...current, emptyDraftLine()])}
                 className="text-sm text-blue-600"
               >
                 + Adicionar item
@@ -406,20 +423,27 @@ function CreateReceiptModal({
 
             {lines.map((line, index) => (
               <div key={index} className="grid md:grid-cols-[1fr_1fr_120px_40px] gap-2 items-end bg-slate-50 p-3 rounded-lg">
-                <label className="text-sm">
+                <div className="text-sm">
                   <span className="block mb-1">Produto</span>
-                  <select required value={line.product_id} onChange={(e) => updateLine(index, { product_id: e.target.value })} className="w-full border rounded px-2 py-2 bg-white">
-                    <option value="">Selecione</option>
-                    {products.map((product) => <option key={product.id} value={product.id}>{product.sku} — {product.name}</option>)}
-                  </select>
-                </label>
-                <label className="text-sm">
+                  <ProductSearchSelect
+                    value={line.product}
+                    onChange={(product) => updateLine(index, {
+                      product,
+                      product_id: product?.id || '',
+                    })}
+                  />
+                </div>
+                <div className="text-sm">
                   <span className="block mb-1">Destino</span>
-                  <select required value={line.location_id} onChange={(e) => updateLine(index, { location_id: e.target.value })} className="w-full border rounded px-2 py-2 bg-white">
-                    <option value="">Selecione</option>
-                    {locations.map((location) => <option key={location.id} value={location.id}>{location.code}</option>)}
-                  </select>
-                </label>
+                  <LocationSearchSelect
+                    mode="destination"
+                    value={line.location}
+                    onChange={(location) => updateLine(index, {
+                      location,
+                      location_id: location?.id || '',
+                    })}
+                  />
+                </div>
                 <label className="text-sm">
                   <span className="block mb-1">Quantidade</span>
                   <input type="number" inputMode="decimal" min={1} step="any" required value={line.expected_quantity} onChange={(e) => updateLine(index, { expected_quantity: Number(e.target.value) })} className="w-full border rounded px-2 py-2" />

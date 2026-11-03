@@ -12,10 +12,12 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useCreateMovement, useMovement, useMovements } from '../hooks/useMovements';
-import { useProducts } from '../hooks/useProducts';
-import { useLocations } from '../hooks/useLocations';
+import { useReferenceLabels } from '../hooks/useReferenceLabels';
 import { useAuth } from '../contexts/AuthContext';
-import type { DBMovement } from '../types';
+import ProductSearchSelect from './ProductSearchSelect';
+import LocationSearchSelect from './LocationSearchSelect';
+import type { LocationSearchOption } from '../services/locationSearch';
+import type { DBMovement, ProductWithStock } from '../types';
 
 const typeLabel: Record<DBMovement['movement_type'], string> = {
   inbound: 'Entrada',
@@ -57,10 +59,23 @@ type ManualMovementType = Exclude<DBMovement['movement_type'], 'count'>;
 type AdjustmentDirection = 'increase' | 'decrease';
 type DraftLine = {
   product_id: string;
+  product: ProductWithStock | null;
   quantity: number;
   from_location_id: string;
+  from_location: LocationSearchOption | null;
   to_location_id: string;
+  to_location: LocationSearchOption | null;
 };
+
+const emptyDraftLine = (): DraftLine => ({
+  product_id: '',
+  product: null,
+  quantity: 1,
+  from_location_id: '',
+  from_location: null,
+  to_location_id: '',
+  to_location: null,
+});
 
 export default function Movements() {
   const { user } = useAuth();
@@ -210,17 +225,13 @@ export default function Movements() {
 }
 
 function CreateMovementModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => Promise<void> | void }) {
-  const { products } = useProducts();
-  const { locations } = useLocations();
   const { createMovement, loading } = useCreateMovement();
   const [movementType, setMovementType] = useState<ManualMovementType>('transfer');
   const [adjustmentDirection, setAdjustmentDirection] = useState<AdjustmentDirection>('increase');
   const [sourceReference, setSourceReference] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [lines, setLines] = useState<DraftLine[]>([
-    { product_id: '', quantity: 1, from_location_id: '', to_location_id: '' },
-  ]);
+  const [lines, setLines] = useState<DraftLine[]>([emptyDraftLine()]);
 
   const needsFrom = movementType === 'outbound' || movementType === 'transfer' || (movementType === 'adjustment' && adjustmentDirection === 'decrease');
   const needsTo = movementType === 'inbound' || movementType === 'transfer' || (movementType === 'adjustment' && adjustmentDirection === 'increase');
@@ -235,10 +246,13 @@ function CreateMovementModal({ onClose, onCreated }: { onClose: () => void; onCr
 
     try {
       for (const line of lines) {
-        if (!line.product_id || !Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error('Preencha produto e quantidade válida em todas as linhas.');
-        if (needsFrom && !line.from_location_id) throw new Error('Selecione a localização de origem em todas as linhas.');
-        if (needsTo && !line.to_location_id) throw new Error('Selecione a localização de destino em todas as linhas.');
+        if (!line.product_id || !line.product || !Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error('Preencha produto e quantidade válida em todas as linhas.');
+        if (needsFrom && (!line.from_location_id || !line.from_location)) throw new Error('Selecione a localização de origem em todas as linhas.');
+        if (needsTo && (!line.to_location_id || !line.to_location)) throw new Error('Selecione a localização de destino em todas as linhas.');
         if (movementType === 'transfer' && line.from_location_id === line.to_location_id) throw new Error('Origem e destino da transferência precisam ser diferentes.');
+        if (needsFrom && line.from_location?.available_quantity !== undefined && line.quantity > line.from_location.available_quantity) {
+          throw new Error(`Quantidade maior que o saldo disponível em ${line.from_location.code}.`);
+        }
       }
 
       const result = await createMovement({
@@ -250,7 +264,7 @@ function CreateMovementModal({ onClose, onCreated }: { onClose: () => void; onCr
           quantity: line.quantity,
           from_location_id: needsFrom ? line.from_location_id : undefined,
           to_location_id: needsTo ? line.to_location_id : undefined,
-          unit: products.find((product) => product.id === line.product_id)?.unit_base || 'un',
+          unit: line.product?.unit_base || 'un',
         })),
       });
 
@@ -308,36 +322,56 @@ function CreateMovementModal({ onClose, onCreated }: { onClose: () => void; onCr
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-slate-800">Itens</h3>
-              <button type="button" onClick={() => setLines((current) => [...current, { product_id: '', quantity: 1, from_location_id: '', to_location_id: '' }])} className="text-sm text-blue-600">+ Adicionar linha</button>
+              <button type="button" onClick={() => setLines((current) => [...current, emptyDraftLine()])} className="text-sm text-blue-600">+ Adicionar linha</button>
             </div>
 
             {lines.map((line, index) => (
               <div key={index} className="grid md:grid-cols-[2fr_1fr_1.5fr_1.5fr_auto] gap-3 p-3 border border-slate-200 rounded-lg items-end">
-                <label className="text-sm">
+                <div className="text-sm">
                   <span className="block text-slate-600 mb-1">Produto</span>
-                  <select value={line.product_id} onChange={(event) => updateLine(index, { product_id: event.target.value })} className="w-full border rounded-lg px-2 py-2 bg-white" required>
-                    <option value="">Selecione...</option>
-                    {products.map((product) => <option key={product.id} value={product.id}>{product.sku} — {product.name}</option>)}
-                  </select>
-                </label>
+                  <ProductSearchSelect
+                    value={line.product}
+                    onChange={(product) => updateLine(index, {
+                      product,
+                      product_id: product?.id || '',
+                      from_location_id: '',
+                      from_location: null,
+                    })}
+                  />
+                </div>
                 <label className="text-sm">
                   <span className="block text-slate-600 mb-1">Quantidade</span>
                   <input type="number" inputMode="decimal" min={0.0001} step="any" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} className="w-full border rounded-lg px-2 py-2" required />
                 </label>
-                <label className="text-sm">
+                <div className="text-sm">
                   <span className="block text-slate-600 mb-1">Origem</span>
-                  <select disabled={!needsFrom} value={line.from_location_id} onChange={(event) => updateLine(index, { from_location_id: event.target.value })} className="w-full border rounded-lg px-2 py-2 bg-white disabled:bg-slate-100">
-                    <option value="">{needsFrom ? 'Selecione...' : 'Não se aplica'}</option>
-                    {locations.map((location) => <option key={location.id} value={location.id}>{location.code}</option>)}
-                  </select>
-                </label>
-                <label className="text-sm">
+                  <LocationSearchSelect
+                    mode="source"
+                    productId={line.product_id}
+                    disabled={!needsFrom}
+                    value={line.from_location}
+                    onChange={(location) => updateLine(index, {
+                      from_location: location,
+                      from_location_id: location?.id || '',
+                      ...(location?.id && location.id === line.to_location_id
+                        ? { to_location: null, to_location_id: '' }
+                        : {}),
+                    })}
+                  />
+                </div>
+                <div className="text-sm">
                   <span className="block text-slate-600 mb-1">Destino</span>
-                  <select disabled={!needsTo} value={line.to_location_id} onChange={(event) => updateLine(index, { to_location_id: event.target.value })} className="w-full border rounded-lg px-2 py-2 bg-white disabled:bg-slate-100">
-                    <option value="">{needsTo ? 'Selecione...' : 'Não se aplica'}</option>
-                    {locations.map((location) => <option key={location.id} value={location.id}>{location.code}</option>)}
-                  </select>
-                </label>
+                  <LocationSearchSelect
+                    mode="destination"
+                    disabled={!needsTo}
+                    excludeIds={movementType === 'transfer' && line.from_location_id ? [line.from_location_id] : []}
+                    value={line.to_location}
+                    onChange={(location) => updateLine(index, {
+                      to_location: location,
+                      to_location_id: location?.id || '',
+                    })}
+                  />
+                </div>
                 <button type="button" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, i) => i !== index))} className="p-2 text-red-500 disabled:text-slate-300" title="Remover linha">
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -360,11 +394,17 @@ function CreateMovementModal({ onClose, onCreated }: { onClose: () => void; onCr
 
 function MovementDetail({ movementId, onBack }: { movementId: string; onBack: () => void }) {
   const { movement, loading, error } = useMovement(movementId);
-  const { products } = useProducts();
-  const { locations } = useLocations();
-
-  const productNames = useMemo(() => new Map(products.map((product) => [product.id, `${product.sku} — ${product.name}`])), [products]);
-  const locationNames = useMemo(() => new Map(locations.map((location) => [location.id, location.code])), [locations]);
+  const productIds = useMemo(
+    () => movement?.lines.map((line) => line.product_id) || [],
+    [movement]
+  );
+  const locationIds = useMemo(
+    () => movement?.lines.flatMap((line) =>
+      [line.from_location_id, line.to_location_id].filter((id): id is string => Boolean(id))
+    ) || [],
+    [movement]
+  );
+  const { labels, error: labelError } = useReferenceLabels(productIds, locationIds);
 
   if (loading) return <div className="p-6 text-slate-500">Carregando movimentação...</div>;
   if (error || !movement) {
@@ -388,6 +428,12 @@ function MovementDetail({ movementId, onBack }: { movementId: string; onBack: ()
         {movement.notes && <p className="text-slate-500 mt-2">{movement.notes}</p>}
       </div>
 
+      {labelError && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+          Não foi possível carregar alguns nomes de produtos ou endereços. Os identificadores originais continuam visíveis.
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full mobile-cards">
@@ -397,9 +443,9 @@ function MovementDetail({ movementId, onBack }: { movementId: string; onBack: ()
             <tbody className="divide-y divide-slate-100">
               {movement.lines.map((line) => (
                 <tr key={line.id}>
-                  <td data-label="Produto" className="px-4 py-3 text-sm">{productNames.get(line.product_id) || line.product_id}</td>
-                  <td data-label="Origem" className="px-4 py-3 text-sm">{line.from_location_id ? locationNames.get(line.from_location_id) || line.from_location_id : '—'}</td>
-                  <td data-label="Destino" className="px-4 py-3 text-sm">{line.to_location_id ? locationNames.get(line.to_location_id) || line.to_location_id : '—'}</td>
+                  <td data-label="Produto" className="px-4 py-3 text-sm">{labels.products[line.product_id] || line.product_id}</td>
+                  <td data-label="Origem" className="px-4 py-3 text-sm">{line.from_location_id ? labels.locations[line.from_location_id] || line.from_location_id : '—'}</td>
+                  <td data-label="Destino" className="px-4 py-3 text-sm">{line.to_location_id ? labels.locations[line.to_location_id] || line.to_location_id : '—'}</td>
                   <td data-label="Quantidade" className="px-4 py-3 text-sm text-right font-medium">{line.quantity}</td>
                   <td data-label="Unidade" className="px-4 py-3 text-sm">{line.unit}</td>
                 </tr>

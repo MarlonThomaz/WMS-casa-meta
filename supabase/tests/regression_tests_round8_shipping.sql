@@ -231,4 +231,64 @@ BEGIN
   END IF;
 END $$;
 
+-- ========================================
+-- SHIP-8.3: banco rejeita picked_quantity acima de requested_quantity
+-- ========================================
+DO $$
+DECLARE
+  v_operator UUID := '10000000-0000-0000-0000-000000000002';
+  v_product UUID;
+  v_location UUID;
+  v_shipment UUID;
+  v_line UUID;
+  v_failed BOOLEAN := false;
+BEGIN
+  SELECT id INTO STRICT v_product FROM public.products WHERE sku = 'SKU-005';
+  SELECT id INTO STRICT v_location FROM public.locations WHERE code = 'PICK-02';
+
+  PERFORM set_config(
+    'request.jwt.claims',
+    jsonb_build_object('sub', v_operator, 'role', 'authenticated')::text,
+    true
+  );
+  PERFORM set_config('wms.internal_status_transition', 'off', true);
+
+  v_shipment := public.create_shipment_with_lines(
+    'Cliente limite picking',
+    'TEST-R8-PICKED-LIMIT',
+    NULL,
+    'medium',
+    CURRENT_DATE,
+    NULL,
+    jsonb_build_array(
+      jsonb_build_object(
+        'product_id', v_product,
+        'requested_quantity', 3,
+        'from_location_id', v_location,
+        'unit', 'un'
+      )
+    )
+  );
+
+  SELECT id INTO STRICT v_line
+    FROM public.shipment_lines
+   WHERE shipment_id = v_shipment;
+
+  BEGIN
+    UPDATE public.shipment_lines
+       SET picked_quantity = 4
+     WHERE id = v_line;
+  EXCEPTION WHEN check_violation THEN
+    v_failed := true;
+  END;
+
+  IF NOT v_failed THEN
+    RAISE EXCEPTION 'SHIP-8.3: banco aceitou quantidade separada acima da solicitada';
+  END IF;
+
+  IF (SELECT picked_quantity FROM public.shipment_lines WHERE id = v_line) <> 0 THEN
+    RAISE EXCEPTION 'SHIP-8.3: tentativa inválida alterou a linha';
+  END IF;
+END $$;
+
 ROLLBACK;

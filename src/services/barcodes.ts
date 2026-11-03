@@ -44,13 +44,14 @@ const demoProductLocation: Record<string, string> = {
   'demo-p5': 'demo-l5',
 };
 
-export async function findProductByBarcode(barcode: string): Promise<ProductWithBarcode | null> {
+async function findProductByBarcode(barcode: string): Promise<ProductWithBarcode | null> {
   if (isDemoMode) {
     const normalized = barcode.trim();
-    const entry = demoBarcodes.find((b) => b.barcode === normalized);
+    const entry = demoBarcodes.find((item) => item.barcode === normalized);
     if (!entry) return null;
-    const product = demoProducts.find((p) => p.id === entry.product_id && p.active);
+    const product = demoProducts.find((item) => item.id === entry.product_id && item.active);
     if (!product) return null;
+
     return {
       product_id: product.id,
       sku: product.sku,
@@ -61,6 +62,7 @@ export async function findProductByBarcode(barcode: string): Promise<ProductWith
       quantity_per_package: entry.quantity_per_package,
     };
   }
+
   if (!isSupabaseConfigured) return null;
 
   const { data, error } = await supabase.rpc('find_product_by_barcode', { p_barcode: barcode });
@@ -69,8 +71,11 @@ export async function findProductByBarcode(barcode: string): Promise<ProductWith
   return data[0] as ProductWithBarcode;
 }
 
-export async function getProductBarcodes(productId: string): Promise<ProductBarcode[]> {
-  if (isDemoMode) return demoBarcodes.filter((b) => b.product_id === productId).map((b) => ({ ...b }));
+async function getProductBarcodes(productId: string): Promise<ProductBarcode[]> {
+  if (isDemoMode) {
+    return demoBarcodes.filter((item) => item.product_id === productId).map((item) => ({ ...item }));
+  }
+
   if (!isSupabaseConfigured) return [];
 
   const { data, error } = await supabase
@@ -78,70 +83,9 @@ export async function getProductBarcodes(productId: string): Promise<ProductBarc
     .select('*')
     .eq('product_id', productId)
     .order('is_primary', { ascending: false });
+
   if (error) throw error;
   return (data || []) as ProductBarcode[];
-}
-
-export async function createProductBarcode(barcode: {
-  product_id: string;
-  barcode: string;
-  barcode_type?: string;
-  packaging_type?: string;
-  quantity_per_package?: number;
-  is_primary?: boolean;
-}): Promise<ProductBarcode> {
-  if (isDemoMode) {
-    if (demoBarcodes.some((b) => b.barcode === barcode.barcode.trim())) {
-      throw new Error('Código de barras já cadastrado');
-    }
-    const created: ProductBarcode = {
-      id: demoId('barcode'),
-      product_id: barcode.product_id,
-      barcode: barcode.barcode.trim(),
-      barcode_type: barcode.barcode_type,
-      packaging_type: barcode.packaging_type || 'unit',
-      quantity_per_package: barcode.quantity_per_package || 1,
-      is_primary: barcode.is_primary || false,
-      created_at: new Date().toISOString(),
-    };
-    demoBarcodes.unshift(created);
-    return created;
-  }
-  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-
-  const { data, error } = await supabase
-    .from('product_barcodes')
-    .insert([{ ...barcode, packaging_type: barcode.packaging_type || 'unit', quantity_per_package: barcode.quantity_per_package || 1, is_primary: barcode.is_primary || false }])
-    .select()
-    .single();
-  if (error) throw error;
-  return data as ProductBarcode;
-}
-
-export async function updateProductBarcode(id: string, updates: Partial<ProductBarcode>): Promise<ProductBarcode> {
-  if (isDemoMode) {
-    const barcode = demoBarcodes.find((b) => b.id === id);
-    if (!barcode) throw new Error('Código de barras não encontrado');
-    Object.assign(barcode, updates);
-    return { ...barcode };
-  }
-  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-
-  const { data, error } = await supabase.from('product_barcodes').update(updates).eq('id', id).select().single();
-  if (error) throw error;
-  return data as ProductBarcode;
-}
-
-export async function deleteProductBarcode(id: string): Promise<void> {
-  if (isDemoMode) {
-    const index = demoBarcodes.findIndex((b) => b.id === id);
-    if (index >= 0) demoBarcodes.splice(index, 1);
-    return;
-  }
-  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-
-  const { error } = await supabase.from('product_barcodes').delete().eq('id', id);
-  if (error) throw error;
 }
 
 export async function getProductDetailsByBarcode(barcode: string): Promise<ProductBarcodeDetails | null> {
@@ -149,34 +93,49 @@ export async function getProductDetailsByBarcode(barcode: string): Promise<Produ
   if (!productInfo) return null;
 
   if (isDemoMode) {
-    const product = demoProducts.find((p) => p.id === productInfo.product_id);
+    const product = demoProducts.find((item) => item.id === productInfo.product_id);
     if (!product) return null;
     const locationId = demoProductLocation[product.id];
-    const location = demoLocations.find((l) => l.id === locationId);
+    const location = demoLocations.find((item) => item.id === locationId);
+
     return {
       ...productInfo,
       total_stock: product.total_stock,
-      stock_by_location: location ? [{
-        location_id: location.id,
-        location_code: location.code,
-        quantity: product.total_stock,
-        reserved_quantity: 0,
-        available_quantity: product.total_stock,
-      }] : [],
+      stock_by_location: location
+        ? [{
+            location_id: location.id,
+            location_code: location.code,
+            quantity: product.total_stock,
+            reserved_quantity: 0,
+            available_quantity: product.total_stock,
+          }]
+        : [],
       all_barcodes: await getProductBarcodes(product.id),
     };
   }
+
   if (!isSupabaseConfigured) return null;
 
-  const { data: totalStockData, error: stockError } = await supabase.rpc('get_product_total_stock', { p_product_id: productInfo.product_id });
+  const { data: totalStockData, error: stockError } = await supabase.rpc('get_product_total_stock', {
+    p_product_id: productInfo.product_id,
+  });
   if (stockError) throw stockError;
-  const { data: stockByLocationData, error: locationError } = await supabase.rpc('get_product_stock_by_location', { p_product_id: productInfo.product_id });
+
+  const { data: stockByLocationData, error: locationError } = await supabase.rpc(
+    'get_product_stock_by_location',
+    { p_product_id: productInfo.product_id }
+  );
   if (locationError) throw locationError;
 
   return {
     ...productInfo,
     total_stock: Number(totalStockData || 0),
-    stock_by_location: ((stockByLocationData || []) as ProductStockLocation[]).map((row) => ({ ...row, quantity: Number(row.quantity), reserved_quantity: Number(row.reserved_quantity), available_quantity: Number(row.available_quantity) })),
+    stock_by_location: ((stockByLocationData || []) as ProductStockLocation[]).map((row) => ({
+      ...row,
+      quantity: Number(row.quantity),
+      reserved_quantity: Number(row.reserved_quantity),
+      available_quantity: Number(row.available_quantity),
+    })),
     all_barcodes: await getProductBarcodes(productInfo.product_id),
   };
 }
@@ -200,10 +159,17 @@ export async function registerProductWithBarcode(params: {
   if (!validation.valid) throw new Error('Código de barras inválido');
 
   if (isDemoMode) {
-    if (demoProducts.some((p) => p.sku.toLowerCase() === params.sku.trim().toLowerCase())) throw new Error('SKU já cadastrado');
-    if (demoBarcodes.some((b) => b.barcode === params.barcode.trim())) throw new Error('Código de barras já cadastrado');
+    if (demoProducts.some((item) => item.sku.toLowerCase() === params.sku.trim().toLowerCase())) {
+      throw new Error('SKU já cadastrado');
+    }
+    if (demoBarcodes.some((item) => item.barcode === params.barcode.trim())) {
+      throw new Error('Código de barras já cadastrado');
+    }
+
     const productId = demoId('product');
     const quantity = Math.max(0, Number(params.initial_quantity || 0));
+    const now = new Date().toISOString();
+
     demoProducts.unshift({
       id: productId,
       sku: params.sku.trim(),
@@ -215,9 +181,10 @@ export async function registerProductWithBarcode(params: {
       max_stock: params.max_stock,
       active: true,
       total_stock: quantity,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      created_at: now,
+      updated_at: now,
     });
+
     demoBarcodes.unshift({
       id: demoId('barcode'),
       product_id: productId,
@@ -226,11 +193,13 @@ export async function registerProductWithBarcode(params: {
       packaging_type: params.packaging_type || 'unit',
       quantity_per_package: params.quantity_per_package ?? 1,
       is_primary: true,
-      created_at: new Date().toISOString(),
+      created_at: now,
     });
+
     if (params.initial_location_id) demoProductLocation[productId] = params.initial_location_id;
     return productId;
   }
+
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
 
   const { data, error } = await supabase.rpc('register_product_with_barcode', {
@@ -248,13 +217,10 @@ export async function registerProductWithBarcode(params: {
     p_initial_location_id: params.initial_location_id || null,
     p_initial_quantity: params.initial_quantity ?? 0,
   });
+
   if (error) throw error;
   if (!data) throw new Error('Banco não retornou o ID do produto');
   return data as string;
-}
-
-export function calculateBaseUnits(scannedQuantity: number, quantityPerPackage: number): number {
-  return scannedQuantity * quantityPerPackage;
 }
 
 export function validateBarcode(barcode: string): { valid: boolean; type?: string } {

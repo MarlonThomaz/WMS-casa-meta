@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   getStockCounts,
   getStockCountById,
   getStockCountLinesWithDetails,
   type StockCount,
+  type StockCountLineWithDetails,
   type StockCountWithLines,
 } from '../services/stockCounts';
 
@@ -16,8 +17,7 @@ export function useStockCounts() {
     try {
       setLoading(true);
       setError(null);
-      const data = await getStockCounts();
-      setCounts(data);
+      setCounts(await getStockCounts());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar contagens');
     } finally {
@@ -26,15 +26,10 @@ export function useStockCounts() {
   };
 
   useEffect(() => {
-    loadCounts();
+    void loadCounts();
   }, []);
 
-  return {
-    counts,
-    loading,
-    error,
-    refresh: loadCounts,
-  };
+  return { counts, loading, error, refresh: loadCounts };
 }
 
 export function useStockCount(countId: string | null) {
@@ -43,13 +38,15 @@ export function useStockCount(countId: string | null) {
   const [error, setError] = useState<string | null>(null);
 
   const loadCount = async () => {
-    if (!countId) return;
-    
+    if (!countId) {
+      setCount(null);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
-      const data = await getStockCountById(countId);
-      setCount(data);
+      setCount(await getStockCountById(countId));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar contagem');
     } finally {
@@ -58,19 +55,14 @@ export function useStockCount(countId: string | null) {
   };
 
   useEffect(() => {
-    loadCount();
+    void loadCount();
   }, [countId]);
 
-  return {
-    count,
-    loading,
-    error,
-    refresh: loadCount,
-  };
+  return { count, loading, error, refresh: loadCount };
 }
 
 export function useStockCountLines(countId: string) {
-  const [lines, setLines] = useState<any[]>([]);
+  const [lines, setLines] = useState<StockCountLineWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,8 +70,7 @@ export function useStockCountLines(countId: string) {
     try {
       setLoading(true);
       setError(null);
-      const data = await getStockCountLinesWithDetails(countId);
-      setLines(data);
+      setLines(await getStockCountLinesWithDetails(countId));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar linhas');
     } finally {
@@ -88,13 +79,8 @@ export function useStockCountLines(countId: string) {
   };
 
   useEffect(() => {
-    loadLines();
+    void loadLines();
   }, [countId]);
 
-  return {
-    lines,
-    loading,
-    error,
-    refresh: loadLines,
-  };
+  return { lines, loading, error, refresh: loadLines };
 }

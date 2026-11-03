@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Role } from '../types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -42,38 +42,3 @@ export type User = {
   full_name?: string;
   role?: Role;
 };
-
-export async function getCurrentUser(): Promise<User | null> {
-  if (!isSupabaseConfigured) return null;
-
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-
-  if (authError) throw authError;
-  if (!user) return null;
-
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('id, email, full_name, role, active')
-    .eq('id', user.id)
-    .eq('active', true)
-    .single();
-
-  if (profileError) throw profileError;
-  if (!profile) return null;
-
-  return {
-    id: profile.id,
-    email: profile.email,
-    full_name: profile.full_name || undefined,
-    role: profile.role as Role,
-  };
-}
-
-export async function signOut() {
-  if (!isSupabaseConfigured) return;
-  const { error } = await supabase.auth.signOut();
-  if (error) throw error;
-}

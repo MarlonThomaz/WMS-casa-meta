@@ -1,0 +1,383 @@
+-- ========================================
+-- Annona Mercis WMS - Regressão de escala do localizador
+-- 3.000 SKUs, 1.200 endereços e 6.000 saldos, tudo revertido ao final.
+-- ========================================
+
+BEGIN;
+
+SET LOCAL statement_timeout = '3s';
+
+SELECT set_config(
+  'request.jwt.claims',
+  jsonb_build_object(
+    'sub', '10000000-0000-0000-0000-000000000002',
+    'role', 'authenticated'
+  )::text,
+  true
+);
+
+INSERT INTO public.locations (
+  code, zone, aisle, rack, level, location_type, capacity, status
+)
+SELECT
+  'PERF-L-' || lpad(gs::text, 4, '0'),
+  'PERF',
+  lpad(((gs - 1) / 20 + 1)::text, 2, '0'),
+  lpad(((gs - 1) % 20 + 1)::text, 2, '0'),
+  '01',
+  'storage',
+  100000,
+  'available'
+FROM generate_series(1, 1200) AS gs;
+
+INSERT INTO public.products (
+  sku, name, description, category, unit_base, min_stock, max_stock, active
+)
+SELECT
+  'PERF-SKU-' || lpad(gs::text, 5, '0'),
+  'Produto de performance ' || lpad(gs::text, 5, '0'),
+  'Fixture temporária de teste de escala',
+  CASE WHEN gs % 2 = 0 THEN 'PERF-A' ELSE 'PERF-B' END,
+  'un',
+  0,
+  10000,
+  true
+FROM generate_series(1, 3000) AS gs;
+
+-- Cada SKU ocupa duas posições diferentes: 6.000 linhas de saldo.
+WITH numbered_products AS (
+  SELECT
+    id,
+    row_number() OVER (ORDER BY sku) AS rn
+  FROM public.products
+  WHERE sku LIKE 'PERF-SKU-%'
+),
+numbered_locations AS (
+  SELECT
+    id,
+    row_number() OVER (ORDER BY code) AS rn
+  FROM public.locations
+  WHERE code LIKE 'PERF-L-%'
+)
+INSERT INTO public.stock_balances (
+  product_id,
+  location_id,
+  quantity,
+  reserved_quantity,
+  last_movement_at
+)
+SELECT
+  p.id,
+  l.id,
+  100 + slot,
+  0,
+  now()
+FROM numbered_products p
+CROSS JOIN generate_series(0, 1) AS slot
+JOIN numbered_locations l
+  ON l.rn = (((p.rn - 1) * 2 + slot) % 1200) + 1;
+
+-- Um endereço indisponível para validar a busca de destino sem interferir
+-- na possibilidade de retirar estoque de posições bloqueadas.
+UPDATE public.locations
+SET status = 'blocked'
+WHERE code = 'PERF-L-0001';
+
+DO $$
+DECLARE
+  v_products BIGINT;
+  v_locations BIGINT;
+  v_balances BIGINT;
+  v_exact_rows BIGINT;
+  v_name_rows BIGINT;
+  v_limited_rows BIGINT;
+  v_expected_dashboard_products BIGINT;
+  v_dashboard_products BIGINT;
+  v_expected_dashboard_stock NUMERIC;
+  v_dashboard_stock NUMERIC;
+  v_inventory_page_rows BIGINT;
+  v_inventory_total BIGINT;
+  v_inventory_second_page_rows BIGINT;
+  v_inventory_exact_rows BIGINT;
+  v_inventory_exact_total BIGINT;
+  v_location_rows BIGINT;
+  v_blocked_destination_rows BIGINT;
+  v_blocked_general_rows BIGINT;
+  v_source_rows BIGINT;
+  v_source_min_available NUMERIC;
+  v_map_page_rows BIGINT;
+  v_map_total BIGINT;
+  v_map_second_page_rows BIGINT;
+  v_map_occupied_rows BIGINT;
+  v_map_occupied_total BIGINT;
+  v_map_blocked_rows BIGINT;
+  v_expected_stats_total BIGINT;
+  v_expected_stats_available BIGINT;
+  v_expected_stats_occupied BIGINT;
+  v_expected_stats_unavailable BIGINT;
+  v_stats_total BIGINT;
+  v_stats_available BIGINT;
+  v_stats_occupied BIGINT;
+  v_stats_unavailable BIGINT;
+  v_product_id UUID;
+  v_started TIMESTAMPTZ;
+  v_elapsed INTERVAL;
+BEGIN
+  SELECT count(*) INTO v_products
+  FROM public.products
+  WHERE sku LIKE 'PERF-SKU-%';
+
+  SELECT count(*) INTO v_locations
+  FROM public.locations
+  WHERE code LIKE 'PERF-L-%';
+
+  SELECT count(*) INTO v_balances
+  FROM public.stock_balances sb
+  JOIN public.products p ON p.id = sb.product_id
+  WHERE p.sku LIKE 'PERF-SKU-%';
+
+  IF v_products <> 3000 THEN
+    RAISE EXCEPTION 'LOAD-8.1: esperado 3000 SKUs, encontrado %', v_products;
+  END IF;
+
+  IF v_locations <> 1200 THEN
+    RAISE EXCEPTION 'LOAD-8.1: esperado 1200 endereços, encontrado %', v_locations;
+  END IF;
+
+  IF v_balances <> 6000 THEN
+    RAISE EXCEPTION 'LOAD-8.1: esperado 6000 saldos, encontrado %', v_balances;
+  END IF;
+
+  v_started := clock_timestamp();
+  SELECT count(*) INTO v_exact_rows
+  FROM public.search_stock_locations('PERF-SKU-02999', 100);
+  v_elapsed := clock_timestamp() - v_started;
+
+  IF v_exact_rows <> 2 THEN
+    RAISE EXCEPTION 'LOAD-8.1: SKU exato deveria retornar 2 posições, retornou %', v_exact_rows;
+  END IF;
+
+  IF v_elapsed > interval '3 seconds' THEN
+    RAISE EXCEPTION 'LOAD-8.1: busca exata excedeu 3s: %', v_elapsed;
+  END IF;
+
+  v_started := clock_timestamp();
+  SELECT count(*) INTO v_name_rows
+  FROM public.search_stock_locations('Produto de performance 02999', 100);
+  v_elapsed := clock_timestamp() - v_started;
+
+  IF v_name_rows <> 2 THEN
+    RAISE EXCEPTION 'LOAD-8.1: busca por nome deveria retornar 2 posições, retornou %', v_name_rows;
+  END IF;
+
+  IF v_elapsed > interval '3 seconds' THEN
+    RAISE EXCEPTION 'LOAD-8.1: busca por nome excedeu 3s: %', v_elapsed;
+  END IF;
+
+  -- Consulta ampla deve respeitar o limite e nunca despejar o armazém inteiro no cliente.
+  SELECT count(*) INTO v_limited_rows
+  FROM public.search_stock_locations('PERF', 100);
+
+  IF v_limited_rows <> 100 THEN
+    RAISE EXCEPTION 'LOAD-8.1: limite esperado 100, retornado %', v_limited_rows;
+  END IF;
+
+  -- O dashboard deve agregar no banco e retornar o universo completo,
+  -- sem depender de qualquer limite de linhas da API/PostgREST.
+  SELECT count(*)
+    INTO v_expected_dashboard_products
+    FROM public.products
+   WHERE active = true;
+
+  SELECT COALESCE(SUM(sb.quantity), 0)
+    INTO v_expected_dashboard_stock
+    FROM public.products p
+    LEFT JOIN public.stock_balances sb ON sb.product_id = p.id
+   WHERE p.active = true;
+
+  SELECT total_products, total_stock
+    INTO v_dashboard_products, v_dashboard_stock
+    FROM public.get_dashboard_stats();
+
+  IF v_dashboard_products <> v_expected_dashboard_products THEN
+    RAISE EXCEPTION 'LOAD-8.2: dashboard contou % produtos, esperado %',
+      v_dashboard_products, v_expected_dashboard_products;
+  END IF;
+
+  IF v_dashboard_stock <> v_expected_dashboard_stock THEN
+    RAISE EXCEPTION 'LOAD-8.2: dashboard somou % unidades, esperado %',
+      v_dashboard_stock, v_expected_dashboard_stock;
+  END IF;
+
+  -- Inventário deve paginar no banco e informar o total completo da busca.
+  v_started := clock_timestamp();
+  SELECT count(*), COALESCE(MAX(total_count), 0)
+    INTO v_inventory_page_rows, v_inventory_total
+    FROM public.search_products_with_stock('PERF-SKU', 50, 0);
+  v_elapsed := clock_timestamp() - v_started;
+
+  IF v_inventory_page_rows <> 50 THEN
+    RAISE EXCEPTION 'LOAD-8.3: primeira página do inventário deveria ter 50 itens, retornou %',
+      v_inventory_page_rows;
+  END IF;
+
+  IF v_inventory_total <> 3000 THEN
+    RAISE EXCEPTION 'LOAD-8.3: busca paginada deveria informar 3000 itens, informou %',
+      v_inventory_total;
+  END IF;
+
+  IF v_elapsed > interval '3 seconds' THEN
+    RAISE EXCEPTION 'LOAD-8.3: busca paginada excedeu 3s: %', v_elapsed;
+  END IF;
+
+  SELECT count(*)
+    INTO v_inventory_second_page_rows
+    FROM public.search_products_with_stock('PERF-SKU', 50, 50);
+
+  IF v_inventory_second_page_rows <> 50 THEN
+    RAISE EXCEPTION 'LOAD-8.3: segunda página do inventário deveria ter 50 itens, retornou %',
+      v_inventory_second_page_rows;
+  END IF;
+
+  SELECT count(*), COALESCE(MAX(total_count), 0)
+    INTO v_inventory_exact_rows, v_inventory_exact_total
+    FROM public.search_products_with_stock('PERF-SKU-02999', 50, 0);
+
+  IF v_inventory_exact_rows <> 1 OR v_inventory_exact_total <> 1 THEN
+    RAISE EXCEPTION 'LOAD-8.3: busca exata do inventário retornou % linha(s), total %',
+      v_inventory_exact_rows, v_inventory_exact_total;
+  END IF;
+
+  -- Busca de endereços deve trabalhar por limite mesmo com 1.200 posições.
+  v_started := clock_timestamp();
+  SELECT count(*) INTO v_location_rows
+  FROM public.search_locations('PERF-L', 20, false);
+  v_elapsed := clock_timestamp() - v_started;
+
+  IF v_location_rows <> 20 THEN
+    RAISE EXCEPTION 'LOAD-8.4: busca de endereços deveria limitar em 20, retornou %', v_location_rows;
+  END IF;
+
+  IF v_elapsed > interval '3 seconds' THEN
+    RAISE EXCEPTION 'LOAD-8.4: busca de endereços excedeu 3s: %', v_elapsed;
+  END IF;
+
+  SELECT count(*) INTO v_blocked_destination_rows
+  FROM public.search_locations('PERF-L-0001', 20, true);
+
+  SELECT count(*) INTO v_blocked_general_rows
+  FROM public.search_locations('PERF-L-0001', 20, false);
+
+  IF v_blocked_destination_rows <> 0 OR v_blocked_general_rows <> 1 THEN
+    RAISE EXCEPTION 'LOAD-8.4: filtro de destino indisponível inconsistente (% destino, % geral)',
+      v_blocked_destination_rows, v_blocked_general_rows;
+  END IF;
+
+  SELECT id INTO v_product_id
+  FROM public.products
+  WHERE sku = 'PERF-SKU-02999';
+
+  v_started := clock_timestamp();
+  SELECT count(*), MIN(available_quantity)
+    INTO v_source_rows, v_source_min_available
+    FROM public.search_product_source_locations(v_product_id, NULL, 20);
+  v_elapsed := clock_timestamp() - v_started;
+
+  IF v_source_rows <> 2 OR v_source_min_available <= 0 THEN
+    RAISE EXCEPTION 'LOAD-8.4: origem por produto deveria retornar 2 saldos disponíveis, retornou %, mínimo %',
+      v_source_rows, v_source_min_available;
+  END IF;
+
+  IF v_elapsed > interval '3 seconds' THEN
+    RAISE EXCEPTION 'LOAD-8.4: busca de origem por produto excedeu 3s: %', v_elapsed;
+  END IF;
+
+  -- O mapa do armazém deve trazer somente uma página, mas informar o total
+  -- completo da busca e calcular ocupação no PostgreSQL.
+  v_started := clock_timestamp();
+  SELECT count(*), COALESCE(MAX(total_count), 0)
+    INTO v_map_page_rows, v_map_total
+    FROM public.search_locations_with_occupancy('PERF-L', NULL, 50, 0);
+  v_elapsed := clock_timestamp() - v_started;
+
+  IF v_map_page_rows <> 50 OR v_map_total <> 1200 THEN
+    RAISE EXCEPTION 'LOAD-8.5: mapa deveria retornar 50 de 1200 posições, retornou % de %',
+      v_map_page_rows, v_map_total;
+  END IF;
+
+  IF v_elapsed > interval '3 seconds' THEN
+    RAISE EXCEPTION 'LOAD-8.5: mapa paginado excedeu 3s: %', v_elapsed;
+  END IF;
+
+  SELECT count(*)
+    INTO v_map_second_page_rows
+    FROM public.search_locations_with_occupancy('PERF-L', NULL, 50, 50);
+
+  IF v_map_second_page_rows <> 50 THEN
+    RAISE EXCEPTION 'LOAD-8.5: segunda página do mapa deveria ter 50 posições, retornou %',
+      v_map_second_page_rows;
+  END IF;
+
+  SELECT count(*), COALESCE(MAX(total_count), 0)
+    INTO v_map_occupied_rows, v_map_occupied_total
+    FROM public.search_locations_with_occupancy('PERF-L', 'occupied', 50, 0);
+
+  IF v_map_occupied_rows <> 50 OR v_map_occupied_total <> 1199 THEN
+    RAISE EXCEPTION 'LOAD-8.5: filtro ocupado deveria retornar 50 de 1199, retornou % de %',
+      v_map_occupied_rows, v_map_occupied_total;
+  END IF;
+
+  SELECT count(*)
+    INTO v_map_blocked_rows
+    FROM public.search_locations_with_occupancy('PERF-L-0001', 'blocked', 50, 0);
+
+  IF v_map_blocked_rows <> 1 THEN
+    RAISE EXCEPTION 'LOAD-8.5: mapa deveria localizar a posição bloqueada, retornou %',
+      v_map_blocked_rows;
+  END IF;
+
+  WITH location_totals AS (
+    SELECT
+      l.id,
+      l.status,
+      COALESCE(SUM(sb.quantity) FILTER (WHERE sb.quantity > 0), 0)::NUMERIC AS total_quantity
+    FROM public.locations l
+    LEFT JOIN public.stock_balances sb ON sb.location_id = l.id
+    GROUP BY l.id, l.status
+  ),
+  derived AS (
+    SELECT
+      CASE
+        WHEN lt.status IN ('blocked', 'maintenance', 'reserved') THEN lt.status
+        WHEN lt.total_quantity > 0 THEN 'occupied'
+        ELSE 'available'
+      END AS display_status
+    FROM location_totals lt
+  )
+  SELECT
+    COUNT(*)::BIGINT,
+    COUNT(*) FILTER (WHERE display_status = 'available')::BIGINT,
+    COUNT(*) FILTER (WHERE display_status = 'occupied')::BIGINT,
+    COUNT(*) FILTER (WHERE display_status IN ('blocked', 'maintenance'))::BIGINT
+  INTO
+    v_expected_stats_total,
+    v_expected_stats_available,
+    v_expected_stats_occupied,
+    v_expected_stats_unavailable
+  FROM derived;
+
+  SELECT total_locations, available_locations, occupied_locations, unavailable_locations
+    INTO v_stats_total, v_stats_available, v_stats_occupied, v_stats_unavailable
+    FROM public.get_location_map_stats();
+
+  IF v_stats_total <> v_expected_stats_total
+     OR v_stats_available <> v_expected_stats_available
+     OR v_stats_occupied <> v_expected_stats_occupied
+     OR v_stats_unavailable <> v_expected_stats_unavailable THEN
+    RAISE EXCEPTION 'LOAD-8.5: estatísticas do mapa divergiram: obtido (%,%,%,%), esperado (%,%,%,%)',
+      v_stats_total, v_stats_available, v_stats_occupied, v_stats_unavailable,
+      v_expected_stats_total, v_expected_stats_available, v_expected_stats_occupied, v_expected_stats_unavailable;
+  END IF;
+END $$;
+
+ROLLBACK;

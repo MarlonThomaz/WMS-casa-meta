@@ -33,7 +33,7 @@ export default function Login() {
             </svg>
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">Annona Mercis WMS</h1>
-          <p className="text-slate-300">Sistema de Gerenciamento de Armazém</p>
+          <p className="text-slate-300">Organização e endereçamento do estoque físico</p>
           {isDemo && (
             <div className="mt-3 inline-block px-3 py-1 bg-amber-500/20 border border-amber-400/50 rounded-full">
               <p className="text-xs text-amber-200">Modo demonstração explícito</p>

@@ -23,11 +23,46 @@ export type StockCountLine = {
   counted_quantity: number;
   difference: number;
   notes?: string;
-  counted_at?: string;
+  counted_at?: string | null;
   created_at: string;
 };
 
+export type StockCountLineWithDetails = StockCountLine & {
+  products?: { id: string; sku: string; name: string; category?: string } | null;
+  locations?: { id: string; code: string; zone: string } | null;
+};
+
 export type StockCountWithLines = StockCount & { lines: StockCountLine[] };
+
+export type StockCountStats = {
+  byStatus: {
+    pending: number;
+    in_progress: number;
+    completed: number;
+    cancelled: number;
+  };
+  byType: {
+    full: number;
+    cycle: number;
+    spot: number;
+    reconciliation: number;
+  };
+  total: number;
+};
+
+export type InventoryAccuracy = {
+  accuracy: number;
+  total_lines: number;
+  accurate_lines: number;
+  discrepancies: number;
+};
+
+const EMPTY_ACCURACY: InventoryAccuracy = {
+  accuracy: 100,
+  total_lines: 0,
+  accurate_lines: 0,
+  discrepancies: 0,
+};
 
 export async function createStockCount(params: {
   count_type: StockCount['count_type'];
@@ -36,6 +71,7 @@ export async function createStockCount(params: {
 }): Promise<StockCount> {
   if (isDemoMode) {
     if (params.count_type !== 'full' && !params.location_id) throw new Error('Selecione uma localização');
+
     const id = demoId('count');
     const createdAt = new Date().toISOString();
     const count: StockCount = {
@@ -48,108 +84,141 @@ export async function createStockCount(params: {
       created_at: createdAt,
       created_by: 'demo-user-id',
     };
+
     const targets = params.count_type === 'full'
-      ? demoLocations.filter((l) => l.location_type === 'storage' || l.location_type === 'picking')
-      : demoLocations.filter((l) => l.id === params.location_id);
+      ? demoLocations.filter((location) => location.location_type === 'storage' || location.location_type === 'picking')
+      : demoLocations.filter((location) => location.id === params.location_id);
+
     const productLocationMap: Record<string, string> = {
-      'demo-p1': 'demo-l1', 'demo-p2': 'demo-l2', 'demo-p3': 'demo-l3', 'demo-p4': 'demo-l4', 'demo-p5': 'demo-l5',
+      'demo-p1': 'demo-l1',
+      'demo-p2': 'demo-l2',
+      'demo-p3': 'demo-l3',
+      'demo-p4': 'demo-l4',
+      'demo-p5': 'demo-l5',
     };
-    for (const product of demoProducts.filter((p) => p.active)) {
+
+    for (const product of demoProducts.filter((item) => item.active)) {
       const locationId = productLocationMap[product.id];
-      if (!locationId || !targets.some((l) => l.id === locationId)) continue;
+      if (!locationId || !targets.some((location) => location.id === locationId)) continue;
       demoStockCountLines.push({
-        id: demoId('count-line'), stock_count_id: id, product_id: product.id, location_id: locationId,
-        system_quantity: product.total_stock, counted_quantity: product.total_stock, difference: 0, created_at: createdAt,
+        id: demoId('count-line'),
+        stock_count_id: id,
+        product_id: product.id,
+        location_id: locationId,
+        system_quantity: product.total_stock,
+        counted_quantity: product.total_stock,
+        difference: 0,
+        counted_at: undefined,
+        created_at: createdAt,
       });
     }
+
     demoStockCounts.unshift(count);
     return { ...count };
   }
 
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+
   const { data: countId, error } = await supabase.rpc('create_stock_count_with_snapshot', {
     p_count_type: params.count_type,
     p_location_id: params.location_id || null,
     p_notes: params.notes || null,
   });
+
   if (error) throw new Error(`Erro ao criar contagem: ${error.message}`);
   if (!countId) throw new Error('Banco não retornou o ID da contagem');
+
   const count = await getStockCountById(countId as string);
   if (!count) throw new Error('Contagem criada, mas não pôde ser recarregada');
   return count;
 }
 
-export async function addStockCountLine(line: {
-  stock_count_id: string;
-  product_id: string;
-  location_id: string;
-}): Promise<StockCountLine> {
-  if (isDemoMode) {
-    const product = demoProducts.find((p) => p.id === line.product_id);
-    const systemQuantity = product?.total_stock ?? 0;
-    const created: StockCountLine = {
-      id: demoId('count-line'), ...line, system_quantity: systemQuantity,
-      counted_quantity: systemQuantity, difference: 0, created_at: new Date().toISOString(),
-    };
-    demoStockCountLines.push(created);
-    return { ...created };
+export async function updateCountedQuantity(
+  lineId: string,
+  countedQuantity: number,
+  notes?: string
+): Promise<void> {
+  if (!Number.isFinite(countedQuantity) || countedQuantity < 0) {
+    throw new Error('Quantidade contada não pode ser negativa');
   }
-  if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  const { data: balanceData, error: balanceError } = await supabase.from('stock_balances').select('quantity').eq('product_id', line.product_id).eq('location_id', line.location_id).maybeSingle();
-  if (balanceError) throw new Error(`Erro ao buscar saldo: ${balanceError.message}`);
-  const systemQuantity = Number(balanceData?.quantity ?? 0);
-  const { data, error } = await supabase.from('stock_count_lines').insert([{ ...line, system_quantity: systemQuantity, counted_quantity: systemQuantity }]).select().single();
-  if (error) throw new Error(`Erro ao adicionar linha: ${error.message}`);
-  return data as StockCountLine;
-}
 
-export async function updateCountedQuantity(lineId: string, countedQuantity: number, notes?: string): Promise<void> {
-  if (!Number.isFinite(countedQuantity) || countedQuantity < 0) throw new Error('Quantidade contada não pode ser negativa');
   if (isDemoMode) {
-    const line = demoStockCountLines.find((l) => l.id === lineId);
+    const line = demoStockCountLines.find((item) => item.id === lineId);
     if (!line) throw new Error('Linha não encontrada');
     line.counted_quantity = countedQuantity;
     line.difference = countedQuantity - line.system_quantity;
-    line.notes = notes;
+    if (notes !== undefined) line.notes = notes;
     line.counted_at = new Date().toISOString();
     return;
   }
+
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  const { error } = await supabase.from('stock_count_lines').update({ counted_quantity: countedQuantity, notes, counted_at: new Date().toISOString() }).eq('id', lineId);
+
+  const payload: { counted_quantity: number; counted_at: string; notes?: string } = {
+    counted_quantity: countedQuantity,
+    counted_at: new Date().toISOString(),
+  };
+  if (notes !== undefined) payload.notes = notes;
+
+  const { data, error } = await supabase
+    .from('stock_count_lines')
+    .update(payload)
+    .eq('id', lineId)
+    .select('id')
+    .maybeSingle();
+
   if (error) throw new Error(`Erro ao atualizar quantidade: ${error.message}`);
+  if (!data) throw new Error('Linha de contagem não encontrada ou não disponível para alteração');
 }
 
 export async function startStockCount(countId: string): Promise<void> {
   if (isDemoMode) {
-    const count = demoStockCounts.find((c) => c.id === countId);
+    const count = demoStockCounts.find((item) => item.id === countId);
     if (!count) throw new Error('Contagem não encontrada');
-    if (count.status === 'pending') {
-      count.status = 'in_progress';
-      count.operator_id = 'demo-user-id';
-    }
+    if (count.status !== 'pending') throw new Error('Contagem não está pendente');
+    count.status = 'in_progress';
+    count.operator_id = 'demo-user-id';
     return;
   }
+
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  const { error } = await supabase.from('stock_counts').update({ status: 'in_progress' }).eq('id', countId).eq('status', 'pending');
+
+  const { data, error } = await supabase
+    .from('stock_counts')
+    .update({ status: 'in_progress' })
+    .eq('id', countId)
+    .eq('status', 'pending')
+    .select('id')
+    .maybeSingle();
+
   if (error) throw new Error(`Erro ao iniciar contagem: ${error.message}`);
+  if (!data) throw new Error('Contagem não está mais pendente; atualize a tela');
 }
 
-export async function completeStockCount(countId: string): Promise<{ adjustments: number; discrepancies: number }> {
+export async function completeStockCount(
+  countId: string
+): Promise<{ adjustments: number; discrepancies: number }> {
   if (isDemoMode) {
-    const count = demoStockCounts.find((c) => c.id === countId);
+    const count = demoStockCounts.find((item) => item.id === countId);
     if (!count) throw new Error('Contagem não encontrada');
-    if (count.status !== 'in_progress' && count.status !== 'pending') throw new Error('Contagem não está aberta');
-    const lines = demoStockCountLines.filter((l) => l.stock_count_id === countId);
+    if (count.status !== 'in_progress') throw new Error('Contagem não está em andamento');
+
+    const lines = demoStockCountLines.filter((line) => line.stock_count_id === countId);
+    if (lines.length === 0) throw new Error('Contagem não possui linhas');
+    if (lines.some((line) => !line.counted_at)) {
+      throw new Error('Confirme fisicamente todas as linhas antes de concluir a contagem');
+    }
+
     let discrepancies = 0;
     for (const line of lines) {
       line.difference = Number(line.counted_quantity) - Number(line.system_quantity);
       if (line.difference !== 0) {
         discrepancies++;
-        const product = demoProducts.find((p) => p.id === line.product_id);
+        const product = demoProducts.find((item) => item.id === line.product_id);
         if (product) product.total_stock = Math.max(0, product.total_stock + line.difference);
       }
-      line.counted_at ||= new Date().toISOString();
     }
+
     count.status = 'completed';
     count.completed_at = new Date().toISOString();
     count.operator_id = 'demo-user-id';
@@ -157,9 +226,15 @@ export async function completeStockCount(countId: string): Promise<{ adjustments
   }
 
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
+
   const { error } = await supabase.rpc('process_stock_count_adjustments', { p_count_id: countId });
   if (error) throw new Error(`Erro ao concluir contagem: ${error.message}`);
-  const { data: lines, error: linesError } = await supabase.from('stock_count_lines').select('difference').eq('stock_count_id', countId);
+
+  const { data: lines, error: linesError } = await supabase
+    .from('stock_count_lines')
+    .select('difference')
+    .eq('stock_count_id', countId);
+
   if (linesError) throw new Error(`Erro ao buscar linhas: ${linesError.message}`);
   const discrepancies = (lines || []).filter((line) => Number(line.difference) !== 0).length;
   return { adjustments: discrepancies, discrepancies };
@@ -167,115 +242,185 @@ export async function completeStockCount(countId: string): Promise<{ adjustments
 
 export async function cancelStockCount(countId: string): Promise<void> {
   if (isDemoMode) {
-    const count = demoStockCounts.find((c) => c.id === countId);
+    const count = demoStockCounts.find((item) => item.id === countId);
     if (!count) throw new Error('Contagem não encontrada');
-    if (count.status === 'pending' || count.status === 'in_progress') count.status = 'cancelled';
+    if (count.status !== 'pending' && count.status !== 'in_progress') {
+      throw new Error('Contagem não pode mais ser cancelada');
+    }
+    count.status = 'cancelled';
     return;
   }
+
   if (!isSupabaseConfigured) throw new Error('Supabase não configurado');
-  const { error } = await supabase.from('stock_counts').update({ status: 'cancelled' }).eq('id', countId).in('status', ['pending', 'in_progress']);
+
+  const { data, error } = await supabase
+    .from('stock_counts')
+    .update({ status: 'cancelled' })
+    .eq('id', countId)
+    .in('status', ['pending', 'in_progress'])
+    .select('id')
+    .maybeSingle();
+
   if (error) throw new Error(`Erro ao cancelar contagem: ${error.message}`);
+  if (!data) throw new Error('Contagem não está mais aberta; atualize a tela');
 }
 
 export async function getStockCountById(id: string): Promise<StockCountWithLines | null> {
   if (isDemoMode) {
-    const count = demoStockCounts.find((c) => c.id === id);
+    const count = demoStockCounts.find((item) => item.id === id);
     if (!count) return null;
-    return { ...count, lines: demoStockCountLines.filter((l) => l.stock_count_id === id).map((l) => ({ ...l })) };
+    return {
+      ...count,
+      lines: demoStockCountLines.filter((line) => line.stock_count_id === id).map((line) => ({ ...line })),
+    };
   }
+
   if (!isSupabaseConfigured) return null;
-  const { data: count, error: countError } = await supabase.from('stock_counts').select('*').eq('id', id).single();
+
+  const { data: count, error: countError } = await supabase
+    .from('stock_counts')
+    .select('*')
+    .eq('id', id)
+    .single();
+
   if (countError) {
     if (countError.code === 'PGRST116') return null;
     throw new Error(`Erro ao buscar contagem: ${countError.message}`);
   }
-  const { data: lines, error: linesError } = await supabase.from('stock_count_lines').select('*').eq('stock_count_id', id).order('created_at');
+
+  const { data: lines, error: linesError } = await supabase
+    .from('stock_count_lines')
+    .select('*')
+    .eq('stock_count_id', id)
+    .order('created_at');
+
   if (linesError) throw new Error(`Erro ao buscar linhas: ${linesError.message}`);
   return { ...(count as StockCount), lines: (lines || []) as StockCountLine[] };
 }
 
 export async function getStockCounts(limit = 100): Promise<StockCount[]> {
-  if (isDemoMode) return demoStockCounts.slice(0, limit).map((c) => ({ ...c }));
+  if (isDemoMode) return demoStockCounts.slice(0, limit).map((count) => ({ ...count }));
   if (!isSupabaseConfigured) return [];
-  const { data, error } = await supabase.from('stock_counts').select('*').order('created_at', { ascending: false }).limit(limit);
+
+  const { data, error } = await supabase
+    .from('stock_counts')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
   if (error) throw new Error(`Erro ao buscar contagens: ${error.message}`);
   return (data || []) as StockCount[];
 }
 
-export async function getStockCountsByStatus(status: StockCount['status']): Promise<StockCount[]> {
-  if (isDemoMode) return demoStockCounts.filter((c) => c.status === status).map((c) => ({ ...c }));
-  if (!isSupabaseConfigured) return [];
-  const { data, error } = await supabase.from('stock_counts').select('*').eq('status', status).order('created_at', { ascending: false });
-  if (error) throw new Error(`Erro ao buscar contagens: ${error.message}`);
-  return (data || []) as StockCount[];
-}
-
-export async function getStockCountStats() {
+export async function getStockCountStats(): Promise<StockCountStats> {
   const source = isDemoMode ? demoStockCounts : null;
   if (!isSupabaseConfigured && !isDemoMode) {
-    return { byStatus: { pending: 0, in_progress: 0, completed: 0, cancelled: 0 }, byType: { full: 0, cycle: 0, spot: 0, reconciliation: 0 }, total: 0 };
+    return {
+      byStatus: { pending: 0, in_progress: 0, completed: 0, cancelled: 0 },
+      byType: { full: 0, cycle: 0, spot: 0, reconciliation: 0 },
+      total: 0,
+    };
   }
+
   let data: Array<{ status: string; count_type: string }> = source || [];
   if (!isDemoMode) {
     const result = await supabase.from('stock_counts').select('status, count_type');
     if (result.error) throw new Error(`Erro ao buscar estatísticas: ${result.error.message}`);
     data = result.data || [];
   }
-  const byStatus = { pending: 0, in_progress: 0, completed: 0, cancelled: 0 };
-  const byType = { full: 0, cycle: 0, spot: 0, reconciliation: 0 };
+
+  const byStatus: StockCountStats['byStatus'] = {
+    pending: 0,
+    in_progress: 0,
+    completed: 0,
+    cancelled: 0,
+  };
+  const byType: StockCountStats['byType'] = {
+    full: 0,
+    cycle: 0,
+    spot: 0,
+    reconciliation: 0,
+  };
+
   for (const count of data) {
-    byStatus[count.status as keyof typeof byStatus]++;
-    byType[count.count_type as keyof typeof byType]++;
+    if (count.status in byStatus) {
+      byStatus[count.status as keyof StockCountStats['byStatus']]++;
+    }
+    if (count.count_type in byType) {
+      byType[count.count_type as keyof StockCountStats['byType']]++;
+    }
   }
+
   return { byStatus, byType, total: data.length };
 }
 
-export async function getStockCountLinesWithDetails(countId: string) {
+export async function getStockCountLinesWithDetails(countId: string): Promise<StockCountLineWithDetails[]> {
   if (isDemoMode) {
-    return demoStockCountLines.filter((l) => l.stock_count_id === countId).map((line) => ({
-      ...line,
-      products: demoProducts.find((p) => p.id === line.product_id) || null,
-      locations: demoLocations.find((l) => l.id === line.location_id) || null,
-    }));
+    return demoStockCountLines
+      .filter((line) => line.stock_count_id === countId)
+      .map((line) => ({
+        ...line,
+        products: demoProducts.find((product) => product.id === line.product_id) || null,
+        locations: demoLocations.find((location) => location.id === line.location_id) || null,
+      }));
   }
+
   if (!isSupabaseConfigured) return [];
-  const { data, error } = await supabase.from('stock_count_lines').select(`*, products (id, sku, name, category), locations (id, code, zone)`).eq('stock_count_id', countId).order('created_at');
+
+  const { data, error } = await supabase
+    .from('stock_count_lines')
+    .select(`*, products (id, sku, name, category), locations (id, code, zone)`)
+    .eq('stock_count_id', countId)
+    .order('created_at');
+
   if (error) throw new Error(`Erro ao buscar linhas: ${error.message}`);
-  return data || [];
+  return (data || []) as unknown as StockCountLineWithDetails[];
 }
 
-export async function getInventoryAccuracy(locationId?: string) {
+export async function getInventoryAccuracy(locationId?: string): Promise<InventoryAccuracy> {
   if (isDemoMode) {
-    const completedIds = new Set(demoStockCounts.filter((count) => count.status === 'completed').map((count) => count.id));
+    const completedIds = new Set(
+      demoStockCounts.filter((count) => count.status === 'completed').map((count) => count.id)
+    );
     const data = demoStockCountLines.filter(
       (line) => completedIds.has(line.stock_count_id) && (!locationId || line.location_id === locationId)
     );
-    if (data.length === 0) return { accuracy: 100, total_lines: 0, accurate_lines: 0, discrepancies: 0 };
-    const accurateLines = data.filter((line) => Number(line.system_quantity) === Number(line.counted_quantity)).length;
-    return { accuracy: (accurateLines / data.length) * 100, total_lines: data.length, accurate_lines: accurateLines, discrepancies: data.length - accurateLines };
+
+    if (data.length === 0) return { ...EMPTY_ACCURACY };
+
+    const accurateLines = data.filter(
+      (line) => Number(line.system_quantity) === Number(line.counted_quantity)
+    ).length;
+
+    return {
+      accuracy: (accurateLines / data.length) * 100,
+      total_lines: data.length,
+      accurate_lines: accurateLines,
+      discrepancies: data.length - accurateLines,
+    };
   }
 
-  if (!isSupabaseConfigured) return { accuracy: 100, total_lines: 0, accurate_lines: 0, discrepancies: 0 };
+  if (!isSupabaseConfigured) return { ...EMPTY_ACCURACY };
 
-  const { data: completedCounts, error: countsError } = await supabase
-    .from('stock_counts')
-    .select('id')
-    .eq('status', 'completed');
-  if (countsError) throw new Error(`Erro ao buscar contagens concluídas: ${countsError.message}`);
+  const { data, error } = await supabase.rpc('get_inventory_accuracy', {
+    p_location_id: locationId || null,
+  });
 
-  const completedIds = (completedCounts || []).map((count) => count.id);
-  if (completedIds.length === 0) return { accuracy: 100, total_lines: 0, accurate_lines: 0, discrepancies: 0 };
-
-  let query = supabase
-    .from('stock_count_lines')
-    .select('system_quantity, counted_quantity')
-    .in('stock_count_id', completedIds);
-  if (locationId) query = query.eq('location_id', locationId);
-
-  const { data, error } = await query;
   if (error) throw new Error(`Erro ao calcular precisão: ${error.message}`);
-  if (!data || data.length === 0) return { accuracy: 100, total_lines: 0, accurate_lines: 0, discrepancies: 0 };
 
-  const accurateLines = data.filter((line) => Number(line.system_quantity) === Number(line.counted_quantity)).length;
-  return { accuracy: (accurateLines / data.length) * 100, total_lines: data.length, accurate_lines: accurateLines, discrepancies: data.length - accurateLines };
+  const row = (data as Array<{
+    accuracy?: number | string;
+    total_lines?: number | string;
+    accurate_lines?: number | string;
+    discrepancies?: number | string;
+  }> | null)?.[0];
+
+  if (!row) return { ...EMPTY_ACCURACY };
+
+  return {
+    accuracy: Number(row.accuracy ?? 100),
+    total_lines: Number(row.total_lines ?? 0),
+    accurate_lines: Number(row.accurate_lines ?? 0),
+    discrepancies: Number(row.discrepancies ?? 0),
+  };
 }
