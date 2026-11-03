@@ -4,14 +4,9 @@ import {
   getStockCountById,
   getStockCountLinesWithDetails,
   type StockCount,
-  type StockCountLine,
+  type StockCountLineWithDetails,
   type StockCountWithLines,
 } from '../services/stockCounts';
-
-type StockCountLineWithDetails = StockCountLine & {
-  products?: { id: string; sku: string; name: string; category?: string } | null;
-  locations?: { id: string; code: string; zone: string } | null;
-};
 
 export function useStockCounts() {
   const [counts, setCounts] = useState<StockCount[]>([]);
@@ -75,8 +70,7 @@ export function useStockCountLines(countId: string) {
     try {
       setLoading(true);
       setError(null);
-      const data = await getStockCountLinesWithDetails(countId);
-      setLines(data as StockCountLineWithDetails[]);
+      setLines(await getStockCountLinesWithDetails(countId));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar linhas');
     } finally {
