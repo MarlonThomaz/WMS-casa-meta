@@ -32,8 +32,8 @@ export default function Login() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">WMS Casa Meta</h1>
-          <p className="text-slate-300">Sistema de Gerenciamento de Armazém</p>
+          <h1 className="text-3xl font-bold text-white mb-2">Annona Mercis WMS</h1>
+          <p className="text-slate-300">Organização e endereçamento do estoque físico</p>
           {isDemo && (
             <div className="mt-3 inline-block px-3 py-1 bg-amber-500/20 border border-amber-400/50 rounded-full">
               <p className="text-xs text-amber-200">Modo demonstração explícito</p>
