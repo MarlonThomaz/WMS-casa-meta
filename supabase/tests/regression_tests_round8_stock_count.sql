@@ -207,4 +207,94 @@ BEGIN
   END IF;
 END $$;
 
+-- ========================================
+-- COUNT-8.2: precisão considera somente contagens concluídas
+-- e respeita filtro por localização.
+-- ========================================
+DO $$
+DECLARE
+  v_operator UUID := '10000000-0000-0000-0000-000000000002';
+  v_location UUID;
+  v_count UUID;
+  v_line_count BIGINT;
+  v_before_total BIGINT;
+  v_before_accurate BIGINT;
+  v_before_discrepancies BIGINT;
+  v_pending_total BIGINT;
+  v_pending_accurate BIGINT;
+  v_pending_discrepancies BIGINT;
+  v_after_total BIGINT;
+  v_after_accurate BIGINT;
+  v_after_discrepancies BIGINT;
+BEGIN
+  SELECT id INTO STRICT v_location FROM public.locations WHERE code = 'PICK-02';
+
+  PERFORM set_config(
+    'request.jwt.claims',
+    jsonb_build_object('sub', v_operator, 'role', 'authenticated')::text,
+    true
+  );
+  PERFORM set_config('wms.internal_status_transition', 'off', true);
+
+  SELECT total_lines, accurate_lines, discrepancies
+    INTO v_before_total, v_before_accurate, v_before_discrepancies
+    FROM public.get_inventory_accuracy(v_location);
+
+  v_count := public.create_stock_count_with_snapshot(
+    'cycle',
+    v_location,
+    'Regressão da precisão agregada'
+  );
+
+  UPDATE public.stock_count_lines
+     SET counted_quantity = system_quantity + 999,
+         counted_at = NOW()
+   WHERE stock_count_id = v_count;
+
+  SELECT COUNT(*) INTO v_line_count
+    FROM public.stock_count_lines
+   WHERE stock_count_id = v_count;
+
+  IF v_line_count = 0 THEN
+    RAISE EXCEPTION 'COUNT-8.2: fixture não criou linhas para PICK-02';
+  END IF;
+
+  -- Enquanto a contagem estiver pendente, ela não pode alterar a precisão.
+  SELECT total_lines, accurate_lines, discrepancies
+    INTO v_pending_total, v_pending_accurate, v_pending_discrepancies
+    FROM public.get_inventory_accuracy(v_location);
+
+  IF v_pending_total <> v_before_total
+     OR v_pending_accurate <> v_before_accurate
+     OR v_pending_discrepancies <> v_before_discrepancies THEN
+    RAISE EXCEPTION 'COUNT-8.2: contagem pendente afetou a métrica';
+  END IF;
+
+  -- Promove somente a fixture para concluída sem reconciliar estoque;
+  -- o objetivo aqui é testar a leitura agregada, não o processamento da contagem.
+  PERFORM set_config('wms.internal_status_transition', 'on', true);
+  UPDATE public.stock_counts
+     SET status = 'completed', completed_at = NOW()
+   WHERE id = v_count;
+  PERFORM set_config('wms.internal_status_transition', 'off', true);
+
+  SELECT total_lines, accurate_lines, discrepancies
+    INTO v_after_total, v_after_accurate, v_after_discrepancies
+    FROM public.get_inventory_accuracy(v_location);
+
+  IF v_after_total <> v_before_total + v_line_count THEN
+    RAISE EXCEPTION 'COUNT-8.2: total esperado %, recebido %',
+      v_before_total + v_line_count, v_after_total;
+  END IF;
+
+  IF v_after_accurate <> v_before_accurate THEN
+    RAISE EXCEPTION 'COUNT-8.2: linhas divergentes foram contadas como corretas';
+  END IF;
+
+  IF v_after_discrepancies <> v_before_discrepancies + v_line_count THEN
+    RAISE EXCEPTION 'COUNT-8.2: divergências esperadas %, recebidas %',
+      v_before_discrepancies + v_line_count, v_after_discrepancies;
+  END IF;
+END $$;
+
 ROLLBACK;
