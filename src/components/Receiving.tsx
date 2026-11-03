@@ -16,10 +16,11 @@ import {
   useReceipts,
   useUpdateReceivedQuantity,
 } from '../hooks/useReceiving';
-import { useLocations } from '../hooks/useLocations';
 import { useReferenceLabels } from '../hooks/useReferenceLabels';
 import { useAuth } from '../contexts/AuthContext';
 import ProductSearchSelect from './ProductSearchSelect';
+import LocationSearchSelect from './LocationSearchSelect';
+import type { LocationSearchOption } from '../services/locationSearch';
 import type { DBReceipt, ProductWithStock } from '../types';
 
 const statusLabel: Record<DBReceipt['status'], string> = {
@@ -41,7 +42,16 @@ type DraftLine = {
   product: ProductWithStock | null;
   expected_quantity: number;
   location_id: string;
+  location: LocationSearchOption | null;
 };
+
+const emptyDraftLine = (): DraftLine => ({
+  product_id: '',
+  product: null,
+  expected_quantity: 1,
+  location_id: '',
+  location: null,
+});
 
 export default function Receiving() {
   const { user } = useAuth();
@@ -336,18 +346,12 @@ function CreateReceiptModal({
   onClose: () => void;
   onCreated: (id: string) => void | Promise<void>;
 }) {
-  const { locations } = useLocations();
   const { createNewReceipt, loading } = useCreateReceipt();
   const [supplier, setSupplier] = useState('');
   const [dock, setDock] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [lines, setLines] = useState<DraftLine[]>([
-    { product_id: '', product: null, expected_quantity: 1, location_id: '' },
-  ]);
-  const destinationLocations = locations.filter(
-    (location) => location.status !== 'blocked' && location.status !== 'maintenance'
-  );
+  const [lines, setLines] = useState<DraftLine[]>([emptyDraftLine()]);
 
   const updateLine = (index: number, patch: Partial<DraftLine>) => {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -358,7 +362,7 @@ function CreateReceiptModal({
     setError(null);
 
     try {
-      if (lines.some((line) => !line.product_id || !line.product || !line.location_id || line.expected_quantity <= 0)) {
+      if (lines.some((line) => !line.product_id || !line.product || !line.location_id || !line.location || line.expected_quantity <= 0)) {
         throw new Error('Preencha produto, destino e quantidade em todas as linhas.');
       }
 
@@ -410,7 +414,7 @@ function CreateReceiptModal({
               <h3 className="font-semibold">Itens</h3>
               <button
                 type="button"
-                onClick={() => setLines((current) => [...current, { product_id: '', product: null, expected_quantity: 1, location_id: '' }])}
+                onClick={() => setLines((current) => [...current, emptyDraftLine()])}
                 className="text-sm text-blue-600"
               >
                 + Adicionar item
@@ -429,13 +433,17 @@ function CreateReceiptModal({
                     })}
                   />
                 </div>
-                <label className="text-sm">
+                <div className="text-sm">
                   <span className="block mb-1">Destino</span>
-                  <select required value={line.location_id} onChange={(e) => updateLine(index, { location_id: e.target.value })} className="w-full border rounded px-2 py-2 bg-white">
-                    <option value="">Selecione</option>
-                    {destinationLocations.map((location) => <option key={location.id} value={location.id}>{location.code}</option>)}
-                  </select>
-                </label>
+                  <LocationSearchSelect
+                    mode="destination"
+                    value={line.location}
+                    onChange={(location) => updateLine(index, {
+                      location,
+                      location_id: location?.id || '',
+                    })}
+                  />
+                </div>
                 <label className="text-sm">
                   <span className="block mb-1">Quantidade</span>
                   <input type="number" inputMode="decimal" min={1} step="any" required value={line.expected_quantity} onChange={(e) => updateLine(index, { expected_quantity: Number(e.target.value) })} className="w-full border rounded px-2 py-2" />
