@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.casameta.wms',
-  appName: 'WMS Casa Meta',
+  appId: 'com.annonamercis.wms',
+  appName: 'Annona Mercis WMS',
   webDir: 'dist',
   bundledWebRuntime: false,
   
@@ -45,7 +45,7 @@ const config: CapacitorConfig = {
   
   // Configurações iOS
   ios: {
-    scheme: 'WMS Casa Meta',
+    scheme: 'Annona Mercis WMS',
     allowsLinkPreview: false,
     statusBarOverlaysWebView: false
   }
