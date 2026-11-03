@@ -21,11 +21,46 @@ export type DashboardStats = {
   pendingShipments: number;
 };
 
+type DashboardStatsRow = {
+  total_products: number | string | null;
+  total_stock: number | string | null;
+  low_stock_products: number | string | null;
+  low_stock_items: unknown;
+  occupied_locations: number | string | null;
+  total_locations: number | string | null;
+  pending_receipts: number | string | null;
+  pending_shipments: number | string | null;
+};
+
+function normalizeLowStockItems(value: unknown): DashboardLowStockItem[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+
+    const row = item as Record<string, unknown>;
+    if (typeof row.id !== 'string' || typeof row.sku !== 'string' || typeof row.name !== 'string') {
+      return [];
+    }
+
+    return [{
+      id: row.id,
+      sku: row.sku,
+      name: row.name,
+      total_stock: Number(row.total_stock || 0),
+      min_stock: Number(row.min_stock || 0),
+      unit_base: typeof row.unit_base === 'string' ? row.unit_base : 'un',
+    }];
+  });
+}
+
 export async function getDashboardStats(): Promise<DashboardStats> {
   if (isDemoMode) {
     const active = demoProducts.filter((product) => product.active);
     const lowStockItems = active
       .filter((product) => product.total_stock <= product.min_stock)
+      .sort((a, b) => a.total_stock - b.total_stock || a.sku.localeCompare(b.sku))
+      .slice(0, 6)
       .map((product) => ({
         id: product.id,
         sku: product.sku,
@@ -38,7 +73,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     return {
       totalProducts: active.length,
       totalStock: active.reduce((sum, product) => sum + product.total_stock, 0),
-      lowStockProducts: lowStockItems.length,
+      lowStockProducts: active.filter((product) => product.total_stock <= product.min_stock).length,
       lowStockItems,
       occupiedLocations: demoLocations.filter((location) => Number(location.total_quantity || 0) > 0).length,
       totalLocations: demoLocations.length,
@@ -47,58 +82,22 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     };
   }
 
-  const { data: productsWithStock, error: productsError } = await supabase.rpc('get_products_with_stock');
-  if (productsError) throw productsError;
+  const { data, error } = await supabase.rpc('get_dashboard_stats');
+  if (error) throw error;
 
-  const products = (productsWithStock || []) as Array<{
-    id: string;
-    sku: string;
-    name: string;
-    total_stock: number;
-    min_stock: number;
-    unit_base: string;
-  }>;
-  const lowStockItems = products
-    .filter((product) => Number(product.total_stock || 0) <= Number(product.min_stock || 0))
-    .map((product) => ({
-      ...product,
-      total_stock: Number(product.total_stock || 0),
-      min_stock: Number(product.min_stock || 0),
-    }));
-
-  const totalProducts = products.length;
-  const totalStock = products.reduce((sum, product) => sum + Number(product.total_stock || 0), 0);
-
-  const { data: locations, error: locationsError } = await supabase
-    .from('locations')
-    .select('id, stock_balances(quantity)');
-  if (locationsError) throw locationsError;
-
-  const occupiedLocations = (locations || []).filter((location) => {
-    const balances = (location.stock_balances || []) as Array<{ quantity: number | string | null }>;
-    return balances.some((balance) => Number(balance.quantity || 0) > 0);
-  }).length;
-
-  const { count: pendingReceipts, error: receiptsError } = await supabase
-    .from('receipts')
-    .select('*', { count: 'exact', head: true })
-    .in('status', ['pending', 'partial']);
-  if (receiptsError) throw receiptsError;
-
-  const { count: pendingShipments, error: shipmentsError } = await supabase
-    .from('shipments')
-    .select('*', { count: 'exact', head: true })
-    .in('status', ['pending', 'picking']);
-  if (shipmentsError) throw shipmentsError;
+  const row = ((data || []) as DashboardStatsRow[])[0];
+  if (!row) {
+    throw new Error('Banco não retornou as estatísticas do dashboard');
+  }
 
   return {
-    totalProducts,
-    totalStock,
-    lowStockProducts: lowStockItems.length,
-    lowStockItems,
-    occupiedLocations,
-    totalLocations: locations?.length || 0,
-    pendingReceipts: pendingReceipts || 0,
-    pendingShipments: pendingShipments || 0,
+    totalProducts: Number(row.total_products || 0),
+    totalStock: Number(row.total_stock || 0),
+    lowStockProducts: Number(row.low_stock_products || 0),
+    lowStockItems: normalizeLowStockItems(row.low_stock_items),
+    occupiedLocations: Number(row.occupied_locations || 0),
+    totalLocations: Number(row.total_locations || 0),
+    pendingReceipts: Number(row.pending_receipts || 0),
+    pendingShipments: Number(row.pending_shipments || 0),
   };
 }
