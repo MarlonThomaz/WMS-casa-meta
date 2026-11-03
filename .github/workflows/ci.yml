@@ -197,6 +197,12 @@ jobs:
             IF to_regprocedure('public.register_product_with_barcode(text,text,text,text,text,numeric,numeric,text,text,text,numeric,uuid,numeric)') IS NULL THEN
               RAISE EXCEPTION 'register_product_with_barcode missing';
             END IF;
+            IF to_regprocedure('public.search_stock_locations(text,integer)') IS NULL THEN
+              RAISE EXCEPTION 'search_stock_locations missing';
+            END IF;
+            IF to_regprocedure('public.get_inventory_accuracy(uuid)') IS NULL THEN
+              RAISE EXCEPTION 'get_inventory_accuracy missing';
+            END IF;
           END $$;
           SQL
 
@@ -232,6 +238,10 @@ jobs:
       - name: Execute shipping regressions
         shell: bash
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/regression_tests_round8_shipping.sql
+
+      - name: Execute concurrent reservation regression
+        shell: bash
+        run: bash supabase/tests/concurrency_reservation_round8.sh
 
       - name: Execute stock and count regressions
         shell: bash
