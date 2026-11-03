@@ -31,7 +31,7 @@ BEGIN
       p.name,
       p.unit_base,
       p.min_stock,
-      COALESCE(SUM(sb.quantity), 0)::NUMERIC AS total_stock
+      COALESCE(SUM(sb.quantity), 0)::NUMERIC AS product_total_stock
     FROM public.products p
     LEFT JOIN public.stock_balances sb
       ON sb.product_id = p.id
@@ -40,39 +40,39 @@ BEGIN
   ),
   low_stock_sample AS (
     SELECT
-      id,
-      sku,
-      name,
-      total_stock,
-      min_stock,
-      unit_base
-    FROM product_totals
-    WHERE total_stock <= min_stock
-    ORDER BY total_stock ASC, sku ASC
+      pt.id,
+      pt.sku,
+      pt.name,
+      pt.product_total_stock,
+      pt.min_stock,
+      pt.unit_base
+    FROM product_totals pt
+    WHERE pt.product_total_stock <= pt.min_stock
+    ORDER BY pt.product_total_stock ASC, pt.sku ASC
     LIMIT 6
   ),
   low_stock_json AS (
     SELECT COALESCE(
       jsonb_agg(
         jsonb_build_object(
-          'id', id,
-          'sku', sku,
-          'name', name,
-          'total_stock', total_stock,
-          'min_stock', min_stock,
-          'unit_base', unit_base
+          'id', ls.id,
+          'sku', ls.sku,
+          'name', ls.name,
+          'total_stock', ls.product_total_stock,
+          'min_stock', ls.min_stock,
+          'unit_base', ls.unit_base
         )
-        ORDER BY total_stock ASC, sku ASC
+        ORDER BY ls.product_total_stock ASC, ls.sku ASC
       ),
       '[]'::jsonb
     ) AS items
-    FROM low_stock_sample
+    FROM low_stock_sample ls
   )
   SELECT
     (SELECT COUNT(*) FROM product_totals)::BIGINT,
-    (SELECT COALESCE(SUM(pt.total_stock), 0) FROM product_totals pt)::NUMERIC,
-    (SELECT COUNT(*) FROM product_totals WHERE total_stock <= min_stock)::BIGINT,
-    (SELECT items FROM low_stock_json),
+    (SELECT COALESCE(SUM(pt.product_total_stock), 0) FROM product_totals pt)::NUMERIC,
+    (SELECT COUNT(*) FROM product_totals pt WHERE pt.product_total_stock <= pt.min_stock)::BIGINT,
+    (SELECT lj.items FROM low_stock_json lj),
     (
       SELECT COUNT(*)
       FROM public.locations l
