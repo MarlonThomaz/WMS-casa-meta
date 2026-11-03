@@ -12,10 +12,11 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useCreateMovement, useMovement, useMovements } from '../hooks/useMovements';
-import { useLocations } from '../hooks/useLocations';
 import { useReferenceLabels } from '../hooks/useReferenceLabels';
 import { useAuth } from '../contexts/AuthContext';
 import ProductSearchSelect from './ProductSearchSelect';
+import LocationSearchSelect from './LocationSearchSelect';
+import type { LocationSearchOption } from '../services/locationSearch';
 import type { DBMovement, ProductWithStock } from '../types';
 
 const typeLabel: Record<DBMovement['movement_type'], string> = {
@@ -61,8 +62,20 @@ type DraftLine = {
   product: ProductWithStock | null;
   quantity: number;
   from_location_id: string;
+  from_location: LocationSearchOption | null;
   to_location_id: string;
+  to_location: LocationSearchOption | null;
 };
+
+const emptyDraftLine = (): DraftLine => ({
+  product_id: '',
+  product: null,
+  quantity: 1,
+  from_location_id: '',
+  from_location: null,
+  to_location_id: '',
+  to_location: null,
+});
 
 export default function Movements() {
   const { user } = useAuth();
@@ -212,22 +225,16 @@ export default function Movements() {
 }
 
 function CreateMovementModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => Promise<void> | void }) {
-  const { locations } = useLocations();
   const { createMovement, loading } = useCreateMovement();
   const [movementType, setMovementType] = useState<ManualMovementType>('transfer');
   const [adjustmentDirection, setAdjustmentDirection] = useState<AdjustmentDirection>('increase');
   const [sourceReference, setSourceReference] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [lines, setLines] = useState<DraftLine[]>([
-    { product_id: '', product: null, quantity: 1, from_location_id: '', to_location_id: '' },
-  ]);
+  const [lines, setLines] = useState<DraftLine[]>([emptyDraftLine()]);
 
   const needsFrom = movementType === 'outbound' || movementType === 'transfer' || (movementType === 'adjustment' && adjustmentDirection === 'decrease');
   const needsTo = movementType === 'inbound' || movementType === 'transfer' || (movementType === 'adjustment' && adjustmentDirection === 'increase');
-  const destinationLocations = locations.filter(
-    (location) => location.status !== 'blocked' && location.status !== 'maintenance'
-  );
 
   const updateLine = (index: number, patch: Partial<DraftLine>) => {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -240,9 +247,12 @@ function CreateMovementModal({ onClose, onCreated }: { onClose: () => void; onCr
     try {
       for (const line of lines) {
         if (!line.product_id || !line.product || !Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error('Preencha produto e quantidade válida em todas as linhas.');
-        if (needsFrom && !line.from_location_id) throw new Error('Selecione a localização de origem em todas as linhas.');
-        if (needsTo && !line.to_location_id) throw new Error('Selecione a localização de destino em todas as linhas.');
+        if (needsFrom && (!line.from_location_id || !line.from_location)) throw new Error('Selecione a localização de origem em todas as linhas.');
+        if (needsTo && (!line.to_location_id || !line.to_location)) throw new Error('Selecione a localização de destino em todas as linhas.');
         if (movementType === 'transfer' && line.from_location_id === line.to_location_id) throw new Error('Origem e destino da transferência precisam ser diferentes.');
+        if (needsFrom && line.from_location?.available_quantity !== undefined && line.quantity > line.from_location.available_quantity) {
+          throw new Error(`Quantidade maior que o saldo disponível em ${line.from_location.code}.`);
+        }
       }
 
       const result = await createMovement({
@@ -312,7 +322,7 @@ function CreateMovementModal({ onClose, onCreated }: { onClose: () => void; onCr
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-slate-800">Itens</h3>
-              <button type="button" onClick={() => setLines((current) => [...current, { product_id: '', product: null, quantity: 1, from_location_id: '', to_location_id: '' }])} className="text-sm text-blue-600">+ Adicionar linha</button>
+              <button type="button" onClick={() => setLines((current) => [...current, emptyDraftLine()])} className="text-sm text-blue-600">+ Adicionar linha</button>
             </div>
 
             {lines.map((line, index) => (
@@ -324,6 +334,8 @@ function CreateMovementModal({ onClose, onCreated }: { onClose: () => void; onCr
                     onChange={(product) => updateLine(index, {
                       product,
                       product_id: product?.id || '',
+                      from_location_id: '',
+                      from_location: null,
                     })}
                   />
                 </div>
@@ -331,20 +343,35 @@ function CreateMovementModal({ onClose, onCreated }: { onClose: () => void; onCr
                   <span className="block text-slate-600 mb-1">Quantidade</span>
                   <input type="number" inputMode="decimal" min={0.0001} step="any" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} className="w-full border rounded-lg px-2 py-2" required />
                 </label>
-                <label className="text-sm">
+                <div className="text-sm">
                   <span className="block text-slate-600 mb-1">Origem</span>
-                  <select disabled={!needsFrom} value={line.from_location_id} onChange={(event) => updateLine(index, { from_location_id: event.target.value })} className="w-full border rounded-lg px-2 py-2 bg-white disabled:bg-slate-100">
-                    <option value="">{needsFrom ? 'Selecione...' : 'Não se aplica'}</option>
-                    {locations.map((location) => <option key={location.id} value={location.id}>{location.code}</option>)}
-                  </select>
-                </label>
-                <label className="text-sm">
+                  <LocationSearchSelect
+                    mode="source"
+                    productId={line.product_id}
+                    disabled={!needsFrom}
+                    value={line.from_location}
+                    onChange={(location) => updateLine(index, {
+                      from_location: location,
+                      from_location_id: location?.id || '',
+                      ...(location?.id && location.id === line.to_location_id
+                        ? { to_location: null, to_location_id: '' }
+                        : {}),
+                    })}
+                  />
+                </div>
+                <div className="text-sm">
                   <span className="block text-slate-600 mb-1">Destino</span>
-                  <select disabled={!needsTo} value={line.to_location_id} onChange={(event) => updateLine(index, { to_location_id: event.target.value })} className="w-full border rounded-lg px-2 py-2 bg-white disabled:bg-slate-100">
-                    <option value="">{needsTo ? 'Selecione...' : 'Não se aplica'}</option>
-                    {destinationLocations.map((location) => <option key={location.id} value={location.id}>{location.code}</option>)}
-                  </select>
-                </label>
+                  <LocationSearchSelect
+                    mode="destination"
+                    disabled={!needsTo}
+                    excludeIds={movementType === 'transfer' && line.from_location_id ? [line.from_location_id] : []}
+                    value={line.to_location}
+                    onChange={(location) => updateLine(index, {
+                      to_location: location,
+                      to_location_id: location?.id || '',
+                    })}
+                  />
+                </div>
                 <button type="button" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, i) => i !== index))} className="p-2 text-red-500 disabled:text-slate-300" title="Remover linha">
                   <Trash2 className="w-4 h-4" />
                 </button>
