@@ -1,86 +1,58 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  getStockCounts,
-  getStockCountById,
-  getStockCountLinesWithDetails,
-  type StockCount,
-  type StockCountLineWithDetails,
-  type StockCountWithLines,
+  getStockCountsPage, getStockCountById, getStockCountLinesPage, getStockCountProgress,
+  type StockCount, type StockCountPage, type StockCountLinePage, type CountProgress,
 } from '../services/stockCounts';
 
-export function useStockCounts() {
-  const [counts, setCounts] = useState<StockCount[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadCounts = async () => {
+// Discard late results when switching page, query or count. Never expose data
+// from a previous key as if it belonged to the newly selected page.
+function useRequest<T>(key: string, request: () => Promise<T>) {
+  const [result, setResult] = useState<{key:string;value:T} | null>(null);
+  const [failure, setFailure] = useState<{key:string;message:string} | null>(null);
+  const [pending, setPending] = useState(true);
+  const generation = useRef(0);
+  const refresh = useCallback(async () => {
+    const id = ++generation.current;
+    setPending(true);
+    setFailure(null);
     try {
-      setLoading(true);
-      setError(null);
-      setCounts(await getStockCounts());
+      const value = await request();
+      if (id === generation.current) setResult({key,value});
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar contagens');
+      if (id === generation.current) {
+        setResult(null);
+        setFailure({key,message:err instanceof Error ? err.message : 'Erro ao carregar dados'});
+      }
     } finally {
-      setLoading(false);
+      if (id === generation.current) setPending(false);
     }
-  };
-
+  }, [key,request]);
   useEffect(() => {
-    void loadCounts();
-  }, []);
-
-  return { counts, loading, error, refresh: loadCounts };
+    void refresh();
+    return () => { generation.current++; };
+  }, [refresh]);
+  const value = result?.key === key ? result.value : null;
+  const error = failure?.key === key ? failure.message : null;
+  return {value,loading:pending || (!result && !failure) || (value === null && !error && result?.key !== key),error,refresh};
 }
 
-export function useStockCount(countId: string | null) {
-  const [count, setCount] = useState<StockCountWithLines | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadCount = async () => {
-    if (!countId) {
-      setCount(null);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-      setCount(await getStockCountById(countId));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar contagem');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadCount();
-  }, [countId]);
-
-  return { count, loading, error, refresh: loadCount };
+export function useStockCounts(page = 1, pageSize = 50) {
+  const request = useCallback(() => getStockCountsPage(page,pageSize),[page,pageSize]);
+  const {value,loading,error,refresh} = useRequest<StockCountPage>(`${page}/${pageSize}`,request);
+  return {counts:value?.items ?? [],total:value?.total ?? 0,loading,error,refresh};
 }
-
-export function useStockCountLines(countId: string) {
-  const [lines, setLines] = useState<StockCountLineWithDetails[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadLines = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      setLines(await getStockCountLinesWithDetails(countId));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar linhas');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadLines();
-  }, [countId]);
-
-  return { lines, loading, error, refresh: loadLines };
+export function useStockCount(countId: string) {
+  const request = useCallback(() => getStockCountById(countId),[countId]);
+  const {value,loading,error,refresh} = useRequest<StockCount | null>(countId,request);
+  return {count:value,loading,error,refresh};
+}
+export function useStockCountLines(countId: string, query: string, page:number, pageSize = 50) {
+  const request = useCallback(async () => {
+    const [lines,progress] = await Promise.all([
+      getStockCountLinesPage(countId,query,page,pageSize),getStockCountProgress(countId),
+    ]);
+    return {lines,progress};
+  },[countId,query,page,pageSize]);
+  const {value,loading,error,refresh} = useRequest<{lines:StockCountLinePage;progress:CountProgress}>(JSON.stringify([countId,query,page,pageSize]),request);
+  return {lines:value?.lines.items ?? [],total:value?.lines.total ?? 0,progress:value?.progress ?? null,loading,error,refresh};
 }
