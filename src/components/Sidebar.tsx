@@ -21,6 +21,7 @@ import {
 import type { Page, Role } from '../types';
 
 interface SidebarProps {
+  online?: boolean;
   open: boolean;
   onClose: () => void;
   currentPage: Page;
@@ -57,7 +58,7 @@ const sectionLabels: Record<MenuItem['section'], string> = {
   admin: 'Administração',
 };
 
-export default function Sidebar({ currentPage, onPageChange, open, onClose }: SidebarProps) {
+export default function Sidebar({ currentPage, onPageChange, open, onClose, online = true }: SidebarProps) {
   const panelRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -133,9 +134,11 @@ export default function Sidebar({ currentPage, onPageChange, open, onClose }: Si
                         <li key={item.id}>
                           <button
                             type="button"
+                            disabled={!online && item.id !== 'locator'}
+                            title={!online && item.id !== 'locator' ? 'Disponível com conexão' : undefined}
                             onClick={() => { onPageChange(item.id); onClose(); }}
                             aria-current={isActive ? 'page' : undefined}
-                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                            className={`disabled:opacity-40 disabled:cursor-not-allowed w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                               isActive
                                 ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
                                 : 'text-slate-300 hover:bg-slate-800 hover:text-white'

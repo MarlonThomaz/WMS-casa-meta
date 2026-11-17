@@ -12,7 +12,8 @@ export type OfflineCopy = {
 
 const key = import.meta.env.VITE_SUPABASE_URL || 'unconfigured';
 
-export async function accessCopy(value?: OfflineCopy | null): Promise<OfflineCopy | null> {
+export async function accessCopy(value?: OfflineCopy | null, signal?: AbortSignal): Promise<OfflineCopy | null> {
+  if (value === null && typeof window !== 'undefined') window.dispatchEvent(new Event('annona-copy-cleared'));
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open('annona-offline', 1);
     request.onupgradeneeded = () => request.result.createObjectStore('copies');
@@ -20,6 +21,7 @@ export async function accessCopy(value?: OfflineCopy | null): Promise<OfflineCop
     request.onerror = () => reject(request.error);
   });
   try {
+    if (signal?.aborted) throw new Error('Atualização interrompida.');
     return await new Promise((resolve, reject) => {
       const transaction = db.transaction('copies', value === undefined ? 'readonly' : 'readwrite');
       const store = transaction.objectStore('copies');

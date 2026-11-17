@@ -1,8 +1,9 @@
-import { Menu, WifiOff } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from './contexts/AuthContext';
 import type { Page } from './types';
 import OfflineCatalog from './components/OfflineCatalog';
+import { useOfflineCatalog } from './offline/useOfflineCatalog';
 import Login from './components/Login';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -19,10 +20,10 @@ import AuditLog from './components/AuditLog';
 import UserAdmin from './components/UserAdmin';
 import Help from './components/Help';
 
-function renderPage(page: Page, onNavigate: (page: Page) => void) {
+function renderPage(page: Page, onNavigate: (page: Page) => void, search: string, setSearch: (value: string) => void) {
   switch (page) {
     case 'dashboard': return <Dashboard onNavigate={onNavigate} />;
-    case 'locator': return <ProductLocator />;
+    case 'locator': return <ProductLocator search={search} setSearch={setSearch} />;
     case 'inventory': return <Inventory />;
     case 'locations': return <Locations />;
     case 'receiving': return <Receiving />;
@@ -40,7 +41,7 @@ function renderPage(page: Page, onNavigate: (page: Page) => void) {
 
 export default function App() {
   const { user, loading, isDemo } = useAuth();
-  const [showOffline, setShowOffline] = useState(false);
+  const [search, setSearch] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const [online, setOnline] = useState(navigator.onLine);
@@ -52,12 +53,20 @@ export default function App() {
   }, []);
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
 
-  if (!online || showOffline) {
-    return <OfflineCatalog online={online} userId={user?.id}
-      onBack={online ? () => setShowOffline(false) : undefined} />;
-  }
+  const offline = useOfflineCatalog(online, user?.id, !isDemo);
+  const offlineStatus = !online
+    ? `Sem conexão · ${offline.copy ? 'dados de ' + new Date(offline.copy.savedAt).toLocaleString('pt-BR') : 'dados offline ainda indisponíveis'}`
+    : offline.busy ? (offline.copy ? 'Atualizando dados para consulta sem internet…' : 'Preparando consulta sem internet automaticamente…')
+    : offline.error ? (offline.copy ? 'Não foi possível atualizar agora. A última cópia continua disponível; tentaremos novamente automaticamente.' : 'Consulta offline ainda indisponível. Tentaremos preparar os dados novamente automaticamente.')
+    : offline.shellError ? 'Não foi possível preparar a abertura sem internet. Reconecte e reabra o app para tentar novamente.'
+    : offline.copy && offline.shellReady ? `Consulta sem internet pronta · dados de ${new Date(offline.copy.savedAt).toLocaleString('pt-BR')}`
+    : 'Preparando consulta sem internet automaticamente…';
+  const status = <div role="status" className="bg-slate-200 text-slate-700 px-4 py-2 text-sm">{offlineStatus}</div>;
+  const catalog = <OfflineCatalog copy={offline.copy} loaded={offline.loaded} query={search} onQueryChange={setSearch} />;
 
-  if (loading) {
+  if (!online && !user) return <div className="min-h-dvh bg-slate-100"><header className="bg-slate-900 text-white p-4 font-semibold">Annona Mercis WMS</header>{status}{catalog}</div>;
+
+  if (loading && online) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
         <div className="text-center">
@@ -72,20 +81,20 @@ export default function App() {
 
   return (
     <div className="min-h-dvh bg-slate-100 flex">
-      <Sidebar open={menuOpen} onClose={closeMenu} currentPage={currentPage} onPageChange={setCurrentPage} />
+      <Sidebar online={online} open={menuOpen} onClose={closeMenu} currentPage={online ? currentPage : 'locator'} onPageChange={page => { setCurrentPage(page); closeMenu(); }} />
       <main className="wms-main flex-1 min-w-0">
         <header className="sticky top-0 z-30 flex items-center gap-3 bg-slate-900 text-white px-3 py-2 lg:hidden">
           <button type="button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu" aria-controls="wms-navigation" aria-expanded={menuOpen} className="p-2 rounded-lg hover:bg-slate-800"><Menu className="w-6 h-6" /></button>
           <div className="min-w-0 flex-1"><p className="font-semibold">Annona Mercis WMS</p><p className="text-xs text-slate-300 truncate">{user.email} · {user.role}</p></div>
         </header>
-        {!online && <div role="status" className="flex items-center gap-2 bg-amber-100 text-amber-950 px-4 py-3 text-sm"><WifiOff className="w-5 h-5 shrink-0" />Sem conexão. As operações precisam de internet; confira os dados ao reconectar.</div>}
+        {!isDemo && status}
         {isDemo && (
           <div className="bg-amber-100 border-b border-amber-300 px-4 py-2 text-center text-xs sm:text-sm text-amber-900">
             <strong>DEMO ISOLADA:</strong> dados fictícios em memória. Você pode testar cadastros e fluxos; tudo volta ao estado inicial ao recarregar a página.
           </div>
         )}
-        <div className="px-4 pt-3"><button onClick={() => setShowOffline(true)} className="text-sm text-blue-700 underline">Consulta offline / salvar catálogo</button></div>
-        {renderPage(currentPage, setCurrentPage)}
+        {online ? renderPage(currentPage, setCurrentPage, search, setSearch) : catalog}
+        {!isDemo && online && <p className="px-4 py-3 text-xs text-slate-500">A consulta sem internet é preparada automaticamente neste navegador. Em aparelhos compartilhados, use Sair ao terminar para apagar os dados salvos.</p>}
       </main>
     </div>
   );

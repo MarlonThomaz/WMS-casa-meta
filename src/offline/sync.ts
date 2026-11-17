@@ -29,6 +29,6 @@ export async function syncCopy(userId: string, signal: AbortSignal): Promise<Off
   if (signal.aborted || session?.user.id !== userId) throw new Error('Atualização interrompida.');
   const copy: OfflineCopy = { version: 1, userId, savedAt: new Date().toISOString(),
     products, locations, barcodes, balances };
-  await accessCopy(copy);
+  await accessCopy(copy, signal);
   return copy;
 }
