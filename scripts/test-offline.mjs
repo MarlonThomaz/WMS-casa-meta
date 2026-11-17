@@ -129,3 +129,60 @@ cancelled.abort();
 await assert.rejects(() => syncCopy('operator', cancelled.signal));
 assert.equal(writes, 1);
 console.log('Pagination, failed sync, cancellation and account-switch tests passed.');
+
+// Deterministic clock exercises automatic startup, retry, throttling and logout.
+const automaticSource = readFileSync(new URL('../src/offline/automatic.ts', import.meta.url), 'utf8');
+const automaticCode = ts.transpileModule(automaticSource, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+}).outputText.replace('export function', 'function');
+let now = 100000;
+let timerId = 0;
+const timers = new Map();
+const scope = {
+  AbortController,
+  Date: { now: () => now },
+  setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, at: now + delay }); return id; },
+  clearTimeout(id) { timers.delete(id); },
+};
+vm.runInNewContext(automaticCode + '\nglobalThis.start = startAutomaticSync;', scope);
+const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
+async function advance(ms) {
+  now += ms;
+  for (const [id, timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.fn(); }
+  await flush();
+}
+let requests = [];
+let successes = [];
+let errors = 0;
+const automatic = scope.start({
+  sync(signal) { return new Promise((resolve, reject) => requests.push({ signal, resolve, reject })); },
+  onStart() {}, onSuccess(value) { successes.push(value); }, onError() { errors++; },
+});
+assert.equal(requests.length, 1, 'prepares without a click');
+automatic.wake();
+assert.equal(requests.length, 1, 'no overlapping request');
+requests[0].resolve('first snapshot');
+await flush();
+automatic.wake();
+assert.equal(requests.length, 1, 'focus is throttled');
+await advance(300000);
+assert.equal(requests.length, 2, 'refreshes periodically');
+requests[1].reject(new Error('network lost'));
+await flush();
+assert.deepEqual(successes, ['first snapshot'], 'failure preserves previous snapshot');
+assert.equal(errors, 1);
+await advance(300000);
+assert.equal(requests.length, 3, 'retries automatically after failure');
+automatic.stop();
+assert.equal(requests[2].signal.aborted, true, 'logout/offline cancels work');
+requests[2].resolve('late data');
+await flush();
+await advance(300000);
+assert.deepEqual(successes, ['first snapshot'], 'late response cannot repopulate UI after logout');
+assert.equal(requests.length, 3);
+assert.equal(timers.size, 0, 'cleanup removes retry timers');
+const reconnected = scope.start({ sync: async () => 'fresh', onStart() {}, onSuccess(value) { successes.push(value); }, onError() {} });
+await flush();
+assert.equal(successes.at(-1), 'fresh', 'new online session refreshes immediately');
+reconnected.stop();
+console.log('Automatic preparation, periodic refresh, retry, reconnect and cleanup tests passed.');

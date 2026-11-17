@@ -2,8 +2,7 @@ import { AlertCircle, Loader2, MapPin, PackageSearch, Search } from 'lucide-reac
 import { useEffect, useState } from 'react';
 import { searchStockLocations, type StockBalanceWithDetails } from '../services/stock';
 
-export default function ProductLocator() {
-  const [search, setSearch] = useState('');
+export default function ProductLocator({ search, setSearch }: { search: string; setSearch: (value: string) => void }) {
   const [balances, setBalances] = useState<StockBalanceWithDetails[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
