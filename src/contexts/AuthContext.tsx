@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { accessCopy } from '../offline/storage';
 import { Session } from '@supabase/supabase-js';
 import {
   supabase,
@@ -148,11 +149,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
     }
 
+    // A troca de conta elimina a cópia local anterior antes de autenticar.
+    try { await accessCopy(null); }
+    catch (error) { console.warn('Não foi possível apagar a cópia offline:', error); }
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
   }
 
   async function signOut() {
+    try { await accessCopy(null); }
+    catch (error) { console.warn('Não foi possível apagar a cópia offline:', error); }
     if (isDemoMode) {
       setUser(null);
       setSession(null);

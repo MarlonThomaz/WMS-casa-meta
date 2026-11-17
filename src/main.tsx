@@ -17,3 +17,10 @@ ReactDOM.createRoot(root).render(
     </AuthProvider>
   </React.StrictMode>
 );
+
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js')
+      .catch(error => console.warn('Consulta offline indisponível neste navegador:', error));
+  });
+}
