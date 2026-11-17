@@ -10,7 +10,8 @@ import {
 } from 'lucide-react';
 import BarcodeScanner from './BarcodeScanner';
 import { useAuth } from '../contexts/AuthContext';
-import { useLocations } from '../hooks/useLocations';
+import LocationSearchSelect from './LocationSearchSelect';
+import type { LocationSearchOption } from '../services/locationSearch';
 import {
   getProductDetailsByBarcode,
   ProductBarcodeDetails,
@@ -197,7 +198,6 @@ function RegisterPanel({
   existing: ProductBarcodeDetails | null;
   onRegistered: (barcode: string, message: string) => Promise<void>;
 }) {
-  const { locations } = useLocations();
   const [sku, setSku] = useState('');
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
@@ -207,13 +207,9 @@ function RegisterPanel({
   const [packagingType, setPackagingType] = useState('unit');
   const [quantityPerPackage, setQuantityPerPackage] = useState('1');
   const [initialQuantity, setInitialQuantity] = useState('0');
-  const [initialLocation, setInitialLocation] = useState('');
+  const [initialLocation, setInitialLocation] = useState<LocationSearchOption | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  const usableLocations = locations.filter(
-    (location) => location.status !== 'blocked' && location.status !== 'maintenance'
-  );
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -276,7 +272,7 @@ function RegisterPanel({
         barcode_type: barcodeValidation.type,
         packaging_type: packagingType,
         quantity_per_package: factor,
-        initial_location_id: initial > 0 ? initialLocation : undefined,
+        initial_location_id: initial > 0 ? initialLocation?.id : undefined,
         initial_quantity: initial,
       });
 
@@ -358,12 +354,7 @@ function RegisterPanel({
 
       {Number(initialQuantity) > 0 && (
         <Field label="Localização do estoque inicial">
-          <select required value={initialLocation} onChange={(e) => setInitialLocation(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white">
-            <option value="">Selecione</option>
-            {usableLocations.map((location) => (
-              <option key={location.id} value={location.id}>{location.code} — Zona {location.zone}</option>
-            ))}
-          </select>
+          <LocationSearchSelect value={initialLocation} onChange={setInitialLocation} mode="destination" disabled={saving} />
         </Field>
       )}
 
@@ -383,21 +374,14 @@ function TransferPanel({
   details: ProductBarcodeDetails | null;
   onTransferred: (barcode: string, message: string) => Promise<void>;
 }) {
-  const { locations } = useLocations();
   const [fromLocation, setFromLocation] = useState('');
-  const [toLocation, setToLocation] = useState('');
+  const [toLocation, setToLocation] = useState<LocationSearchOption | null>(null);
   const [quantity, setQuantity] = useState('1');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const sourceOptions = details?.stock_by_location.filter((stock) => stock.available_quantity > 0) || [];
   const source = sourceOptions.find((stock) => stock.location_id === fromLocation);
-  const destinations = locations.filter(
-    (location) =>
-      location.id !== fromLocation &&
-      location.status !== 'blocked' &&
-      location.status !== 'maintenance'
-  );
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -409,7 +393,7 @@ function TransferPanel({
     }
 
     const qty = Number(quantity);
-    if (!fromLocation || !toLocation) {
+    if (!fromLocation || !toLocation || toLocation.id === fromLocation) {
       setFormError('Selecione origem e destino.');
       return;
     }
@@ -432,7 +416,7 @@ function TransferPanel({
           {
             product_id: details.product_id,
             from_location_id: fromLocation,
-            to_location_id: toLocation,
+            to_location_id: toLocation.id,
             quantity: qty,
             unit: 'un',
             notes: 'Transferência pelo kit de código de barras',
@@ -441,7 +425,7 @@ function TransferPanel({
       });
 
       setFromLocation('');
-      setToLocation('');
+      setToLocation(null);
       setQuantity('1');
       await onTransferred(details.barcode, `Transferência de ${qty} unidade(s) concluída.`);
     } catch (err) {
@@ -467,7 +451,7 @@ function TransferPanel({
 
       <div className="grid md:grid-cols-3 gap-4">
         <Field label="Origem">
-          <select value={fromLocation} onChange={(e) => { setFromLocation(e.target.value); setToLocation(''); }} className="w-full border rounded-lg px-3 py-2 bg-white" required>
+          <select value={fromLocation} onChange={(e) => { setFromLocation(e.target.value); setToLocation(null); }} className="w-full border rounded-lg px-3 py-2 bg-white" required>
             <option value="">Selecione</option>
             {sourceOptions.map((stock) => (
               <option key={stock.location_id} value={stock.location_id}>
@@ -477,12 +461,7 @@ function TransferPanel({
           </select>
         </Field>
         <Field label="Destino">
-          <select value={toLocation} onChange={(e) => setToLocation(e.target.value)} className="w-full border rounded-lg px-3 py-2 bg-white" required>
-            <option value="">Selecione</option>
-            {destinations.map((location) => (
-              <option key={location.id} value={location.id}>{location.code} — Zona {location.zone}</option>
-            ))}
-          </select>
+          <LocationSearchSelect value={toLocation} onChange={setToLocation} mode="destination" excludeIds={[fromLocation]} disabled={saving || !fromLocation} />
         </Field>
         <Field label="Quantidade (unidade base)">
           <input type="number" inputMode="decimal" min={0.000001} step="any" max={source?.available_quantity} value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full border rounded-lg px-3 py-2" required />
