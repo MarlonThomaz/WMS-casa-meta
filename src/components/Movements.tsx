@@ -1,4 +1,5 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import HistoryPagination from './HistoryPagination';
 import {
   AlertCircle,
   ArrowDownToLine,
@@ -79,7 +80,7 @@ const emptyDraftLine = (): DraftLine => ({
 
 export default function Movements() {
   const { user } = useAuth();
-  const { movements, loading, error, refresh } = useMovements();
+  const [page,setPage]=useState(1);
   const [typeFilter, setTypeFilter] = useState<'all' | DBMovement['movement_type']>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | DBMovement['status']>('all');
   const [search, setSearch] = useState('');
@@ -87,28 +88,16 @@ export default function Movements() {
   const [showCreate, setShowCreate] = useState(false);
   const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
 
+  const [query,setQuery]=useState('');
+  useEffect(()=>{const timer=window.setTimeout(()=>{setQuery(search.trim());setPage(1);},250);return()=>window.clearTimeout(timer);},[search]);
+  const {movements,total,summary,loading,error,refresh}=useMovements(page,typeFilter,statusFilter,query);
+  useEffect(()=>{if(!loading&&!error)setPage(current=>Math.min(current,Math.max(1,Math.ceil(total/50))));},[loading,error,total]);
   if (selectedId) {
     return <MovementDetail movementId={selectedId} onBack={() => setSelectedId(null)} />;
   }
 
-  const normalizedSearch = search.trim().toLowerCase();
-  const filtered = movements.filter((movement) => {
-    const matchesType = typeFilter === 'all' || movement.movement_type === typeFilter;
-    const matchesStatus = statusFilter === 'all' || movement.status === statusFilter;
-    const matchesSearch =
-      normalizedSearch.length === 0 ||
-      movement.reference.toLowerCase().includes(normalizedSearch) ||
-      movement.source_reference?.toLowerCase().includes(normalizedSearch) ||
-      movement.notes?.toLowerCase().includes(normalizedSearch);
-    return matchesType && matchesStatus && matchesSearch;
-  });
-
-  const summary = {
-    inbound: movements.filter((m) => m.movement_type === 'inbound').length,
-    outbound: movements.filter((m) => m.movement_type === 'outbound').length,
-    transfer: movements.filter((m) => m.movement_type === 'transfer').length,
-    adjustment: movements.filter((m) => m.movement_type === 'adjustment').length,
-  };
+  const filtered=movements;
+  const displaySummary={inbound:summary?.inbound??0,outbound:summary?.outbound??0,transfer:summary?.transfer??0,adjustment:summary?.adjustment??0};
 
   return (
     <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
@@ -141,10 +130,10 @@ export default function Movements() {
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Summary label="Entradas" value={summary.inbound} icon={<ArrowDownToLine className="w-4 h-4" />} />
-        <Summary label="Saídas" value={summary.outbound} icon={<ArrowUpFromLine className="w-4 h-4" />} />
-        <Summary label="Transferências" value={summary.transfer} icon={<ArrowLeftRight className="w-4 h-4" />} />
-        <Summary label="Ajustes" value={summary.adjustment} icon={<Settings className="w-4 h-4" />} />
+        <Summary label="Entradas" value={displaySummary.inbound} icon={<ArrowDownToLine className="w-4 h-4" />} />
+        <Summary label="Saídas" value={displaySummary.outbound} icon={<ArrowUpFromLine className="w-4 h-4" />} />
+        <Summary label="Transferências" value={displaySummary.transfer} icon={<ArrowLeftRight className="w-4 h-4" />} />
+        <Summary label="Ajustes" value={displaySummary.adjustment} icon={<Settings className="w-4 h-4" />} />
       </div>
 
       <div className="grid md:grid-cols-[1fr_220px_220px] gap-3">
@@ -157,7 +146,7 @@ export default function Movements() {
             className="w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg"
           />
         </div>
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)} className="border border-slate-200 rounded-lg px-3 py-2 bg-white">
+        <select value={typeFilter} onChange={(e) => {setTypeFilter(e.target.value as typeof typeFilter);setPage(1);}} className="border border-slate-200 rounded-lg px-3 py-2 bg-white">
           <option value="all">Todos os tipos</option>
           <option value="inbound">Entrada</option>
           <option value="outbound">Saída</option>
@@ -165,7 +154,7 @@ export default function Movements() {
           <option value="adjustment">Ajuste</option>
           <option value="count">Contagem</option>
         </select>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} className="border border-slate-200 rounded-lg px-3 py-2 bg-white">
+        <select value={statusFilter} onChange={(e) => {setStatusFilter(e.target.value as typeof statusFilter);setPage(1);}} className="border border-slate-200 rounded-lg px-3 py-2 bg-white">
           <option value="all">Todos os status</option>
           <option value="pending">Pendente</option>
           <option value="in_progress">Em andamento</option>
@@ -208,6 +197,7 @@ export default function Movements() {
           </table>
         </div>
         {loading && <div className="p-6 text-center text-slate-500">Carregando movimentações...</div>}
+        <HistoryPagination page={page} total={total} loading={loading} onChange={setPage}/>
       </div>
 
       {showCreate && (
@@ -215,6 +205,7 @@ export default function Movements() {
           onClose={() => setShowCreate(false)}
           onCreated={async (movementId) => {
             setShowCreate(false);
+            setPage(1);
             await refresh();
             setSelectedId(movementId);
           }}

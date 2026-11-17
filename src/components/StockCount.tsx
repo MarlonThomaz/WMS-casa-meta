@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle,
@@ -12,7 +12,9 @@ import {
   useStockCountLines,
   useStockCounts,
 } from '../hooks/useStockCounts';
-import { useLocations } from '../hooks/useLocations';
+import LocationSearchSelect from './LocationSearchSelect';
+import type { LocationSearchOption } from '../services/locationSearch';
+import { canCompleteCount } from '../services/stockCounts';
 import { useAuth } from '../contexts/AuthContext';
 import type { StockCount as StockCountRecord } from '../services/stockCounts';
 
@@ -43,18 +45,29 @@ function statusClass(status: StockCountRecord['status']) {
   }
 }
 
+const PAGE_SIZE = 50;
+
+function Pagination({page,total,busy,onChange}:{page:number;total:number;busy:boolean;onChange:(page:number)=>void}) {
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  return <div className="flex flex-wrap items-center justify-between gap-3 p-3 border-t border-slate-200 text-sm">
+    <span aria-live="polite">{total} resultado(s) · Página {page} de {pages}</span>
+    <div className="flex gap-2">
+      <button type="button" disabled={busy || page <= 1} onClick={() => onChange(page-1)} className="px-3 py-2 border rounded disabled:opacity-40">Anterior</button>
+      <button type="button" disabled={busy || page >= pages} onClick={() => onChange(page+1)} className="px-3 py-2 border rounded disabled:opacity-40">Próxima</button>
+    </div>
+  </div>;
+}
+
 export default function StockCount() {
   const { user } = useAuth();
   const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
-  const { counts, loading, error, refresh } = useStockCounts();
-  const { locations } = useLocations();
+  const [page, setPage] = useState(1);
+  const { counts, total, loading, error, refresh } = useStockCounts(page,PAGE_SIZE);
+  useEffect(() => {
+    if (!loading && !error) setPage(current => Math.min(current, Math.max(1,Math.ceil(total/PAGE_SIZE))));
+  },[loading,error,total]);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  const locationCodes = useMemo(
-    () => new Map(locations.map((location) => [location.id, location.code])),
-    [locations]
-  );
 
   if (selectedId) {
     return (
@@ -118,7 +131,7 @@ export default function StockCount() {
                   <td data-label="Número" className="px-4 py-3 text-sm font-mono font-medium">{count.count_number}</td>
                   <td data-label="Tipo" className="px-4 py-3 text-sm text-slate-600">{typeLabel[count.count_type]}</td>
                   <td data-label="Escopo" className="px-4 py-3 text-sm text-slate-600">
-                    {count.location_id ? locationCodes.get(count.location_id) || count.location_id : 'Todas as localizações'}
+                    {count.location_id ? count.location_code || count.location_id : 'Todas as localizações'}
                   </td>
                   <td data-label="Status" className="px-4 py-3">
                     <span className={`inline-flex px-2.5 py-1 rounded-full text-xs ${statusClass(count.status)}`}>
@@ -150,6 +163,7 @@ export default function StockCount() {
           </table>
         </div>
         {loading && <div className="p-6 text-center text-slate-500">Carregando contagens...</div>}
+        <Pagination page={page} total={total} busy={loading} onChange={setPage} />
       </div>
 
       {showCreate && (
@@ -157,6 +171,7 @@ export default function StockCount() {
           onClose={() => setShowCreate(false)}
           onCreated={async (id) => {
             setShowCreate(false);
+            setPage(1);
             await refresh();
             setSelectedId(id);
           }}
@@ -170,46 +185,79 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
   const { user } = useAuth();
   const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
   const { count, loading, error, refresh: refreshCount } = useStockCount(countId);
-  const {
-    lines,
-    loading: linesLoading,
-    error: linesError,
-    refresh: refreshLines,
-  } = useStockCountLines(countId);
-  const [busy, setBusy] = useState(false);
+  const [page,setPage] = useState(1);
+  const [query,setQuery] = useState('');
+  const [search,setSearch] = useState('');
+  const {lines,total,progress,loading:linesLoading,error:linesError,refresh:refreshLines} =
+    useStockCountLines(countId,search,page,PAGE_SIZE);
+  const [busy,setBusy] = useState(false);
+  const [drafts,setDrafts] = useState<Record<string,string>>({});
+  const writeLock = useRef(false);
+  const dirtyCount = Object.keys(drafts).length;
+  useEffect(() => {
+    const timer = window.setTimeout(() => {setSearch(query.trim());setPage(1);},250);
+    return () => window.clearTimeout(timer);
+  },[query]);
+  useEffect(() => {
+    if (!linesLoading && !linesError) setPage(current => Math.min(current,Math.max(1,Math.ceil(total/PAGE_SIZE))));
+  },[linesLoading,linesError,total]);
+  const searching = query.trim() !== search;
+  const locked = busy || loading || linesLoading || searching || Boolean(linesError);
+  const saveLine = async (id:string) => {
+    if (locked || writeLock.current || !(id in drafts)) return;
+    const raw = drafts[id].trim();
+    const value = Number(raw);
+    if (!raw || !Number.isFinite(value) || value < 0) {
+      alert('Informe uma quantidade física válida, inclusive zero.');
+      return;
+    }
+    writeLock.current = true;
+    setBusy(true);
+    try {
+      const {updateCountedQuantity} = await import('../services/stockCounts');
+      await updateCountedQuantity(id,value);
+      setDrafts(current => {const next = {...current};delete next[id];return next;});
+      await refreshAll();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao atualizar contagem');
+    } finally {writeLock.current = false;setBusy(false);}
+  };
+  const safeBack = () => {
+    if (!dirtyCount || window.confirm('Existem quantidades não confirmadas. Descartá-las e voltar?')) onBack();
+  };
 
   const refreshAll = async () => {
     await Promise.all([refreshCount(), refreshLines()]);
   };
 
-  if (loading || linesLoading) {
+  if (loading && !count) {
     return <div className="p-6 text-slate-500">Carregando contagem...</div>;
   }
 
-  if (error || linesError || !count) {
+  if (error || !count) {
     return (
       <div className="p-6 space-y-4">
-        <button type="button" onClick={onBack} className="text-blue-600">← Voltar</button>
+        <button type="button" onClick={safeBack} className="text-blue-600">← Voltar</button>
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-          {error || linesError || 'Contagem não encontrada'}
+          {error || 'Contagem não encontrada'}
         </div>
       </div>
     );
   }
 
-  const confirmedLines = lines.filter((line) => Boolean(line.counted_at)).length;
-  const allLinesConfirmed = lines.length > 0 && confirmedLines === lines.length;
+  const confirmedLines = progress?.confirmed ?? 0;
+  const allLinesConfirmed = !locked && dirtyCount === 0 && canCompleteCount(progress);
 
   return (
     <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <button type="button" onClick={onBack} className="text-blue-600 hover:text-blue-800 mb-2">
+          <button type="button" onClick={safeBack} disabled={busy} className="text-blue-600 hover:text-blue-800 mb-2 disabled:opacity-40">
             ← Voltar
           </button>
           <h1 className="text-2xl font-bold text-slate-800">Contagem {count.count_number}</h1>
           <p className="text-slate-500">
-            {typeLabel[count.count_type]} · {lines.length} linhas no snapshot · {confirmedLines}/{lines.length} confirmadas
+            {typeLabel[count.count_type]} · {progress ? `${progress.total} linhas no snapshot · ${confirmedLines}/${progress.total} confirmadas · ${progress.discrepancies} divergências` : 'Consultando progresso global…'}
           </p>
         </div>
 
@@ -239,7 +287,7 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
           {canOperate && count.status === 'in_progress' && (
             <button
               type="button"
-              disabled={busy || !allLinesConfirmed}
+              disabled={!allLinesConfirmed}
               title={allLinesConfirmed ? 'Concluir contagem' : 'Confirme todas as linhas antes de concluir'}
               onClick={async () => {
                 if (!window.confirm('Concluir a contagem e aplicar as divergências ao estoque?')) return;
@@ -248,7 +296,7 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
                   const { completeStockCount } = await import('../services/stockCounts');
                   const result = await completeStockCount(countId);
                   await refreshAll();
-                  alert(`Contagem concluída. ${result.discrepancies} divergência(s) ajustada(s).`);
+                  alert(result.discrepancies === null ? 'Contagem concluída. Atualize a tela para consultar as divergências.' : `Contagem concluída. ${result.discrepancies} divergência(s) ajustada(s).`);
                 } catch (err) {
                   alert(err instanceof Error ? err.message : 'Erro ao concluir contagem');
                 } finally {
@@ -266,11 +314,12 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
               type="button"
               disabled={busy}
               onClick={async () => {
-                if (!window.confirm('Cancelar esta contagem?')) return;
+                if (!window.confirm('Cancelar esta contagem? Quantidades não confirmadas serão descartadas.')) return;
                 try {
                   setBusy(true);
                   const { cancelStockCount } = await import('../services/stockCounts');
                   await cancelStockCount(countId);
+                  setDrafts({});
                   await refreshAll();
                 } catch (err) {
                   alert(err instanceof Error ? err.message : 'Erro ao cancelar contagem');
@@ -292,11 +341,23 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
         </div>
       )}
 
-      {count.status === 'in_progress' && !allLinesConfirmed && (
+      {count.status === 'in_progress' && (
         <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-          Digite e confirme a quantidade física de cada linha. A contagem só poderá ser concluída depois de {lines.length - confirmedLines} linha(s) restante(s).
+          Digite a quantidade física e confirme com o botão ou Enter, inclusive para zero.
+          {progress && ` Restam ${Math.max(0,progress.total-confirmedLines)} linha(s) em toda a contagem.`}
+          {dirtyCount > 0 && <p className="mt-1 font-semibold">{dirtyCount} edição(ões) aguardando confirmação. As edições são mantidas ao trocar de página ou pesquisar.</p>}
         </div>
       )}
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex-1 min-w-48 text-sm font-medium text-slate-700">
+          Buscar linhas por SKU, produto ou endereço
+          <input type="search" value={query} disabled={busy} onChange={event => setQuery(event.target.value)}
+            placeholder="Ex.: SKU-011 ou A-01" className="block w-full px-3 py-2 mt-1 border rounded-lg bg-white" />
+        </label>
+        <button type="button" disabled={busy || linesLoading} onClick={() => void refreshAll()} className="px-3 py-2 border rounded-lg disabled:opacity-40">Atualizar</button>
+      </div>
+      {linesError && <p role="alert" className="p-3 bg-red-50 text-red-700 rounded-lg">{linesError}. Atualize para tentar novamente.</p>}
+      {(linesLoading || searching) && <p role="status" className="text-sm text-slate-500">Carregando linhas…</p>}
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
@@ -312,7 +373,8 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {lines.map((line) => {
+              {!linesLoading && !searching && !linesError && lines.length === 0 && <tr><td colSpan={6} className="text-center p-5 text-slate-500">Nenhuma linha encontrada.</td></tr>}
+              {!searching && lines.map((line) => {
                 const systemQuantity = Number(line.system_quantity);
                 const countedQuantity = Number(line.counted_quantity);
                 const isCounted = Boolean(line.counted_at);
@@ -329,42 +391,19 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
                     <td data-label="Snapshot" className="px-4 py-3 text-sm text-right">{systemQuantity}</td>
                     <td data-label="Contado" className="px-4 py-3 text-right">
                       {count.status === 'in_progress' && canOperate ? (
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          min={0}
-                          step="any"
-                          defaultValue={isCounted ? countedQuantity : ''}
-                          placeholder="Contar"
-                          disabled={busy}
-                          onBlur={async (event) => {
-                            const rawValue = event.target.value.trim();
-                            if (!rawValue) {
-                              event.target.value = isCounted ? String(countedQuantity) : '';
-                              return;
-                            }
-
-                            const value = Number(rawValue);
-                            if (!Number.isFinite(value) || value < 0) {
-                              event.target.value = isCounted ? String(countedQuantity) : '';
-                              return;
-                            }
-                            if (isCounted && value === countedQuantity) return;
-
-                            try {
-                              setBusy(true);
-                              const { updateCountedQuantity } = await import('../services/stockCounts');
-                              await updateCountedQuantity(line.id, value);
-                              await refreshAll();
-                            } catch (err) {
-                              alert(err instanceof Error ? err.message : 'Erro ao atualizar contagem');
-                              event.target.value = isCounted ? String(countedQuantity) : '';
-                            } finally {
-                              setBusy(false);
-                            }
-                          }}
-                          className="w-24 px-2 py-1 border border-slate-300 rounded text-right"
-                        />
+                        <div className="flex flex-wrap justify-end items-center gap-1">
+                          <input type="number" inputMode="decimal" min={0} step="any"
+                            aria-label={`Quantidade física de ${line.products?.sku || line.product_id} em ${line.locations?.code || line.location_id}`}
+                            value={drafts[line.id] ?? (isCounted ? String(countedQuantity) : '')}
+                            placeholder="Contar" disabled={locked}
+                            onChange={event => {const value = event.target.value;setDrafts(current => ({...current,[line.id]:value}));}}
+                            onKeyDown={event => {if(event.key === 'Enter') {event.preventDefault();void saveLine(line.id);}}}
+                            className="w-24 px-2 py-1 border border-slate-300 rounded text-right"
+                          />
+                          <button type="button" disabled={locked || !(line.id in drafts)}
+                            onClick={() => void saveLine(line.id)} className="px-2 py-1 text-xs bg-blue-600 text-white rounded disabled:opacity-40">Confirmar</button>
+                          {line.id in drafts && <button type="button" disabled={busy} onClick={() => setDrafts(current => {const next={...current};delete next[line.id];return next;})} className="px-1 text-xs text-slate-600 underline">Descartar</button>}
+                        </div>
                       ) : (
                         <span className="text-sm">{isCounted ? countedQuantity : '—'}</span>
                       )}
@@ -393,6 +432,7 @@ function StockCountDetail({ countId, onBack }: { countId: string; onBack: () => 
             </tbody>
           </table>
         </div>
+        <Pagination page={page} total={total} busy={locked} onChange={setPage} />
       </div>
     </div>
   );
@@ -405,9 +445,8 @@ function CreateStockCountModal({
   onClose: () => void;
   onCreated: (id: string) => void | Promise<void>;
 }) {
-  const { locations, loading: locationsLoading } = useLocations();
   const [countType, setCountType] = useState<StockCountRecord['count_type']>('cycle');
-  const [locationId, setLocationId] = useState('');
+  const [location, setLocation] = useState<LocationSearchOption | null>(null);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -418,7 +457,7 @@ function CreateStockCountModal({
     event.preventDefault();
     setError(null);
 
-    if (needsLocation && !locationId) {
+    if (needsLocation && !location) {
       setError('Selecione a localização que será contada.');
       return;
     }
@@ -428,7 +467,7 @@ function CreateStockCountModal({
       const { createStockCount } = await import('../services/stockCounts');
       const created = await createStockCount({
         count_type: countType,
-        location_id: needsLocation ? locationId : undefined,
+        location_id: needsLocation ? location?.id : undefined,
         notes: notes || undefined,
       });
       await onCreated(created.id);
@@ -461,7 +500,7 @@ function CreateStockCountModal({
               onChange={(event) => {
                 const next = event.target.value as StockCountRecord['count_type'];
                 setCountType(next);
-                if (next === 'full') setLocationId('');
+                if (next === 'full') setLocation(null);
               }}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"
             >
@@ -475,18 +514,8 @@ function CreateStockCountModal({
           {needsLocation && (
             <label className="block text-sm">
               <span className="block font-medium text-slate-700 mb-2">Localização</span>
-              <select
-                required
-                disabled={locationsLoading}
-                value={locationId}
-                onChange={(event) => setLocationId(event.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"
-              >
-                <option value="">Selecione a localização</option>
-                {locations.map((location) => (
-                  <option key={location.id} value={location.id}>{location.code} — Zona {location.zone}</option>
-                ))}
-              </select>
+              <LocationSearchSelect value={location} onChange={setLocation} mode="any"
+                disabled={loading} placeholder="Pesquisar qualquer endereço..." />
             </label>
           )}
 
@@ -514,7 +543,7 @@ function CreateStockCountModal({
           </button>
           <button
             type="submit"
-            disabled={loading || locationsLoading}
+            disabled={loading || (needsLocation && !location)}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50"
           >
             {loading ? 'Criando snapshot...' : 'Criar contagem'}

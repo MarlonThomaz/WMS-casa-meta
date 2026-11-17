@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import {useRequest} from './useRequest';
 import {
   type Receipt,
   type ReceiptWithLines,
-  getReceipts,
+  getReceiptsPage,
+  getReceiptsCounts,
   getReceiptById,
   createReceiptWithLines,
   updateReceivedQuantity,
@@ -10,29 +12,13 @@ import {
   cancelReceipt,
 } from '../services/receiving';
 
-export function useReceipts(limit = 100) {
-  const [receipts, setReceipts] = useState<Receipt[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadReceipts = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      setReceipts(await getReceipts(limit));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar recebimentos');
-      console.error('Erro ao carregar recebimentos:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadReceipts();
-  }, [limit]);
-
-  return { receipts, loading, error, refresh: loadReceipts };
+export function useReceipts(page=1,status='all') {
+  const request=useCallback(async()=>{
+    const [result,summary]=await Promise.all([getReceiptsPage(page,status),getReceiptsCounts()]);
+    return {result,summary};
+  },[page,status]);
+  const {value,loading,error,refresh}=useRequest(JSON.stringify([page,status]),request);
+  return {receipts:value?.result.items??[],total:value?.result.total??0,summary:value?.summary,loading,error,refresh};
 }
 
 export function useReceipt(id: string | null) {

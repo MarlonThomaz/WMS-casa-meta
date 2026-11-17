@@ -1,5 +1,6 @@
 import { isDemoMode, isSupabaseConfigured, supabase } from '../lib/supabase';
 import type { DBAuditEvent } from '../types';
+import {historyPage,localHistoryPage} from './history';
 
 const demoAuditEvents: DBAuditEvent[] = [
   {
@@ -26,4 +27,9 @@ export async function getAuditEvents(limit = 200): Promise<DBAuditEvent[]> {
 
   if (error) throw error;
   return (data || []) as DBAuditEvent[];
+}
+
+export async function getAuditEventsPage(page=1,entity='',term=''){
+  if(isDemoMode)return localHistoryPage(demoAuditEvents.filter(row=>(!entity||row.entity_type===entity)&&(!term.trim()||[row.event_type,row.entity_type,row.user_email,row.entity_id].some(v=>v?.toLowerCase().includes(term.trim().toLowerCase())))),page);
+  return historyPage<DBAuditEvent>('audit_events',page,{entity_type:entity},{columns:['event_type','entity_type','user_email'],term,uuidColumn:'entity_id'});
 }

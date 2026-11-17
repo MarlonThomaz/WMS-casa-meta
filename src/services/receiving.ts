@@ -1,4 +1,6 @@
 import { supabase, isSupabaseConfigured, isDemoMode } from '../lib/supabase';
+import { readAllById } from './readAll';
+import {historyPage,historyCounts,localHistoryPage} from './history';
 import { demoId, demoProducts, demoReceiptLines, demoReceipts } from '../demoStore';
 import type { DBReceipt, DBReceiptLine, ReceiptWithLines } from '../types';
 
@@ -60,14 +62,15 @@ export async function getReceiptById(id: string): Promise<ReceiptWithLines | nul
   }
   if (!receipt) return null;
 
-  const { data: lines, error: linesError } = await supabase
-    .from('receipt_lines')
-    .select('*')
-    .eq('receipt_id', id)
-    .order('created_at');
-
-  if (linesError) throw linesError;
-  return { ...receipt, lines: lines || [] };
+  const lines = await readAllById<DBReceiptLine>(async after => {
+    let query = supabase.from('receipt_lines').select('*').eq('receipt_id',id).order('id').limit(250);
+    if (after) query = query.gt('id',after);
+    const {data,error} = await query;
+    if (error) throw error;
+    return (data || []) as DBReceiptLine[];
+  });
+  lines.sort((a,b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+  return { ...receipt, lines };
 }
 
 export async function createReceiptWithLines(input: CreateReceiptInput): Promise<DBReceipt> {
@@ -210,4 +213,14 @@ export async function cancelReceipt(receiptId: string): Promise<void> {
 
   if (error) throw error;
   if (!data) throw new Error('Recebimento não está mais aberto; atualize a tela');
+}
+
+export async function getReceiptsPage(page=1,status='all'){
+  if(isDemoMode)return localHistoryPage(demoReceipts.filter(row=>status==='all'||row.status===status),page);
+  return historyPage<DBReceipt>('receipts',page,{status});
+}
+export async function getReceiptsCounts(){
+  const keys=["pending","partial","completed","cancelled"] as const;
+  if(isDemoMode)return Object.fromEntries(keys.map(key=>[key,demoReceipts.filter(row=>row.status===key).length])) as Record<typeof keys[number],number>;
+  return historyCounts('receipts','status',keys);
 }

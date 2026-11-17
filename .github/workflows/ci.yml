@@ -35,6 +35,9 @@ jobs:
       - name: Offline regressions
         run: node scripts/test-offline.mjs
 
+      - name: Scalability regressions
+        run: node scripts/test-round10.mjs
+
       - name: Production build
         if: always()
         shell: bash

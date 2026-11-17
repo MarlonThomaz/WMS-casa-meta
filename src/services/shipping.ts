@@ -1,4 +1,6 @@
 import { supabase, isSupabaseConfigured, isDemoMode } from '../lib/supabase';
+import { readAllById } from './readAll';
+import {historyPage,historyCounts,localHistoryPage} from './history';
 import { demoId, demoProducts, demoShipmentLines, demoShipments } from '../demoStore';
 import type { DBShipment, DBShipmentLine, ShipmentWithLines } from '../types';
 
@@ -61,14 +63,15 @@ export async function getShipmentById(id: string): Promise<ShipmentWithLines | n
   }
   if (!shipment) return null;
 
-  const { data: lines, error: linesError } = await supabase
-    .from('shipment_lines')
-    .select('*')
-    .eq('shipment_id', id)
-    .order('created_at');
-
-  if (linesError) throw linesError;
-  return { ...shipment, lines: lines || [] };
+  const lines = await readAllById<DBShipmentLine>(async after => {
+    let query = supabase.from('shipment_lines').select('*').eq('shipment_id',id).order('id').limit(250);
+    if (after) query = query.gt('id',after);
+    const {data,error} = await query;
+    if (error) throw error;
+    return (data || []) as DBShipmentLine[];
+  });
+  lines.sort((a,b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+  return { ...shipment, lines };
 }
 
 export async function createShipmentWithLines(input: CreateShipmentInput): Promise<DBShipment> {
@@ -318,4 +321,14 @@ export async function cancelShipment(shipmentId: string): Promise<void> {
 
   if (error) throw error;
   if (!data) throw new Error('Expedição mudou de status; atualize a tela');
+}
+
+export async function getShipmentsPage(page=1,status='all'){
+  if(isDemoMode)return localHistoryPage(demoShipments.filter(row=>status==='all'||row.status===status),page);
+  return historyPage<DBShipment>('shipments',page,{status});
+}
+export async function getShipmentsCounts(){
+  const keys=["pending","picking","packed","shipped"] as const;
+  if(isDemoMode)return Object.fromEntries(keys.map(key=>[key,demoShipments.filter(row=>row.status===key).length])) as Record<typeof keys[number],number>;
+  return historyCounts('shipments','status',keys);
 }

@@ -1,4 +1,6 @@
 import { supabase, isSupabaseConfigured, isDemoMode } from '../lib/supabase';
+import { readAllById } from './readAll';
+import {historyPage,historyCounts,localHistoryPage} from './history';
 import { demoId, demoLocations, demoMovementLines, demoMovements, demoProducts } from '../demoStore';
 import type { DBMovement, DBMovementLine, MovementWithDetails } from '../types';
 
@@ -43,14 +45,15 @@ export async function getMovementById(id: string): Promise<MovementWithDetails |
   }
   if (!movement) return null;
 
-  const { data: lines, error: linesError } = await supabase
-    .from('movement_lines')
-    .select('*')
-    .eq('movement_id', id)
-    .order('created_at');
-
-  if (linesError) throw linesError;
-  return { ...movement, lines: lines || [] };
+  const lines = await readAllById<DBMovementLine>(async after => {
+    let query = supabase.from('movement_lines').select('*').eq('movement_id',id).order('id').limit(250);
+    if (after) query = query.gt('id',after);
+    const {data,error} = await query;
+    if (error) throw error;
+    return (data || []) as DBMovementLine[];
+  });
+  lines.sort((a,b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+  return { ...movement, lines };
 }
 
 export async function createAndProcessMovement(params: {
@@ -184,4 +187,14 @@ export async function createAndProcessMovement(params: {
   const result = await getMovementById(movementId as string);
   if (!result) throw new Error('Movimentação criada, mas não pôde ser recarregada');
   return result;
+}
+
+export async function getMovementsPage(page=1,type='all',status='all',term=''){
+  if(isDemoMode)return localHistoryPage(demoMovements.filter(row=>(type==='all'||row.movement_type===type)&&(status==='all'||row.status===status)&&(!term.trim()||[row.reference,row.source_reference,row.notes].some(v=>v?.toLowerCase().includes(term.trim().toLowerCase())))),page);
+  return historyPage<DBMovement>('movements',page,{movement_type:type,status},{columns:['reference','source_reference','notes'],term});
+}
+export async function getMovementsCounts(){
+  const keys=["inbound","outbound","transfer","adjustment"] as const;
+  if(isDemoMode)return Object.fromEntries(keys.map(key=>[key,demoMovements.filter(row=>row.movement_type===key).length])) as Record<typeof keys[number],number>;
+  return historyCounts('movements','movement_type',keys);
 }

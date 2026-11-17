@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback,useEffect,useState } from 'react';
+import {useRequest} from '../hooks/useRequest';
+import HistoryPagination from './HistoryPagination';
 import { AlertCircle, FileSearch, Loader2, Search, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { getAuditEvents } from '../services/audit';
-import type { DBAuditEvent } from '../types';
+import { getAuditEventsPage } from '../services/audit';
 
 const eventLabels: Record<string, string> = {
   movement_processed: 'Movimentação processada',
@@ -22,49 +23,16 @@ const eventLabels: Record<string, string> = {
 
 export default function AuditLog() {
   const { user } = useAuth();
-  const [events, setEvents] = useState<DBAuditEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [entityFilter, setEntityFilter] = useState('all');
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        setEvents(await getAuditEvents());
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro ao carregar auditoria');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void load();
-  }, []);
-
-  const entities = useMemo(
-    () => [...new Set(events.map((event) => event.entity_type))].sort(),
-    [events]
-  );
-
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return events.filter((event) => {
-      const matchesEntity = entityFilter === 'all' || event.entity_type === entityFilter;
-      if (!matchesEntity) return false;
-      if (!term) return true;
-
-      return [
-        event.event_type,
-        event.entity_type,
-        event.entity_id,
-        event.user_email,
-        JSON.stringify(event.details ?? {}),
-      ].some((value) => value?.toLowerCase().includes(term));
-    });
-  }, [events, entityFilter, search]);
+  const [page,setPage]=useState(1);
+  const [search,setSearch]=useState('');
+  const [term,setTerm]=useState('');
+  const [entityFilter,setEntityFilter]=useState('');
+  const allowed=user?.role==='admin'||user?.role==='manager';
+  useEffect(()=>{const timer=window.setTimeout(()=>{setTerm(search.trim());setPage(1);},250);return()=>window.clearTimeout(timer);},[search]);
+  const request=useCallback(()=>allowed?getAuditEventsPage(page,entityFilter,term):Promise.resolve({items:[],total:0}),[allowed,page,entityFilter,term]);
+  const {value,loading,error}=useRequest(JSON.stringify([allowed,page,entityFilter,term]),request);
+  const filtered=value?.items??[],total=value?.total??0;
+  useEffect(()=>{if(!loading&&!error)setPage(current=>Math.min(current,Math.max(1,Math.ceil(total/50))));},[loading,error,total]);
 
   if (user?.role !== 'admin' && user?.role !== 'manager') {
     return (
@@ -105,20 +73,11 @@ export default function AuditLog() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar por evento, usuário, entidade ou detalhes..."
+            placeholder="Buscar por evento, usuário, entidade ou UUID..."
             className="w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg"
           />
         </div>
-        <select
-          value={entityFilter}
-          onChange={(event) => setEntityFilter(event.target.value)}
-          className="border border-slate-200 rounded-lg px-3 py-2 bg-white"
-        >
-          <option value="all">Todas as entidades</option>
-          {entities.map((entity) => (
-            <option key={entity} value={entity}>{entity}</option>
-          ))}
-        </select>
+        <input value={entityFilter} onChange={event=>{setEntityFilter(event.target.value.trim());setPage(1);}} placeholder="Tipo de entidade (ex.: product)" aria-label="Filtrar entidade por tipo exato" className="border border-slate-200 rounded-lg px-3 py-2 bg-white" />
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -170,6 +129,7 @@ export default function AuditLog() {
             <Loader2 className="w-5 h-5 animate-spin" /> Carregando auditoria...
           </div>
         )}
+        <HistoryPagination page={page} total={total} loading={loading} onChange={setPage}/>
       </div>
     </div>
   );
