@@ -32,6 +32,9 @@ jobs:
           set -o pipefail
           npm run typecheck 2>&1 | tee ci-typecheck.log
 
+      - name: Offline regressions
+        run: node scripts/test-offline.mjs
+
       - name: Production build
         if: always()
         shell: bash

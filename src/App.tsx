@@ -2,6 +2,7 @@ import { Menu, WifiOff } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from './contexts/AuthContext';
 import type { Page } from './types';
+import OfflineCatalog from './components/OfflineCatalog';
 import Login from './components/Login';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -39,6 +40,7 @@ function renderPage(page: Page, onNavigate: (page: Page) => void) {
 
 export default function App() {
   const { user, loading, isDemo } = useAuth();
+  const [showOffline, setShowOffline] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const [online, setOnline] = useState(navigator.onLine);
@@ -49,6 +51,11 @@ export default function App() {
     return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); };
   }, []);
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
+
+  if (!online || showOffline) {
+    return <OfflineCatalog online={online} userId={user?.id}
+      onBack={online ? () => setShowOffline(false) : undefined} />;
+  }
 
   if (loading) {
     return (
@@ -77,6 +84,7 @@ export default function App() {
             <strong>DEMO ISOLADA:</strong> dados fictícios em memória. Você pode testar cadastros e fluxos; tudo volta ao estado inicial ao recarregar a página.
           </div>
         )}
+        <div className="px-4 pt-3"><button onClick={() => setShowOffline(true)} className="text-sm text-blue-700 underline">Consulta offline / salvar catálogo</button></div>
         {renderPage(currentPage, setCurrentPage)}
       </main>
     </div>
