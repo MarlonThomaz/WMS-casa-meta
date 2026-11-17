@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured, isDemoMode } from '../lib/supabase';
+import { readAllById } from './readAll';
 import { demoId, demoLocations, demoMovementLines, demoMovements, demoProducts } from '../demoStore';
 import type { DBMovement, DBMovementLine, MovementWithDetails } from '../types';
 
@@ -43,14 +44,15 @@ export async function getMovementById(id: string): Promise<MovementWithDetails |
   }
   if (!movement) return null;
 
-  const { data: lines, error: linesError } = await supabase
-    .from('movement_lines')
-    .select('*')
-    .eq('movement_id', id)
-    .order('created_at');
-
-  if (linesError) throw linesError;
-  return { ...movement, lines: lines || [] };
+  const lines = await readAllById<DBMovementLine>(async after => {
+    let query = supabase.from('movement_lines').select('*').eq('movement_id',id).order('id').limit(250);
+    if (after) query = query.gt('id',after);
+    const {data,error} = await query;
+    if (error) throw error;
+    return (data || []) as DBMovementLine[];
+  });
+  lines.sort((a,b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+  return { ...movement, lines };
 }
 
 export async function createAndProcessMovement(params: {

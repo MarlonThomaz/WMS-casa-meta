@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured, isDemoMode } from '../lib/supabase';
+import {readAllById} from './readAll';
 import { demoBarcodes, demoId, demoLocations, demoProducts } from '../demoStore';
 
 export type ProductBarcode = {
@@ -78,14 +79,14 @@ async function getProductBarcodes(productId: string): Promise<ProductBarcode[]> 
 
   if (!isSupabaseConfigured) return [];
 
-  const { data, error } = await supabase
-    .from('product_barcodes')
-    .select('*')
-    .eq('product_id', productId)
-    .order('is_primary', { ascending: false });
-
-  if (error) throw error;
-  return (data || []) as ProductBarcode[];
+  const rows = await readAllById<ProductBarcode>(async after => {
+    let query = supabase.from('product_barcodes').select('*').eq('product_id',productId).order('id').limit(250);
+    if(after) query=query.gt('id',after);
+    const {data,error}=await query;
+    if(error) throw error;
+    return (data || []) as ProductBarcode[];
+  });
+  return rows.sort((a,b)=>Number(b.is_primary)-Number(a.is_primary));
 }
 
 export async function getProductDetailsByBarcode(barcode: string): Promise<ProductBarcodeDetails | null> {
@@ -121,16 +122,19 @@ export async function getProductDetailsByBarcode(barcode: string): Promise<Produ
   });
   if (stockError) throw stockError;
 
-  const { data: stockByLocationData, error: locationError } = await supabase.rpc(
-    'get_product_stock_by_location',
-    { p_product_id: productInfo.product_id }
-  );
-  if (locationError) throw locationError;
+  const stockRows = await readAllById<ProductStockLocation & {id:string}>(async after => {
+    let query = supabase.rpc('get_product_stock_by_location',{p_product_id:productInfo.product_id})
+      .order('location_id').limit(250);
+    if(after) query=query.gt('location_id',after);
+    const {data,error}=await query;
+    if(error) throw error;
+    return ((data || []) as ProductStockLocation[]).map(row=>({...row,id:row.location_id}));
+  });
 
   return {
     ...productInfo,
     total_stock: Number(totalStockData || 0),
-    stock_by_location: ((stockByLocationData || []) as ProductStockLocation[]).map((row) => ({
+    stock_by_location: stockRows.map(({id: _cursor, ...row}) => ({
       ...row,
       quantity: Number(row.quantity),
       reserved_quantity: Number(row.reserved_quantity),

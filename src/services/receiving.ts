@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured, isDemoMode } from '../lib/supabase';
+import { readAllById } from './readAll';
 import { demoId, demoProducts, demoReceiptLines, demoReceipts } from '../demoStore';
 import type { DBReceipt, DBReceiptLine, ReceiptWithLines } from '../types';
 
@@ -60,14 +61,15 @@ export async function getReceiptById(id: string): Promise<ReceiptWithLines | nul
   }
   if (!receipt) return null;
 
-  const { data: lines, error: linesError } = await supabase
-    .from('receipt_lines')
-    .select('*')
-    .eq('receipt_id', id)
-    .order('created_at');
-
-  if (linesError) throw linesError;
-  return { ...receipt, lines: lines || [] };
+  const lines = await readAllById<DBReceiptLine>(async after => {
+    let query = supabase.from('receipt_lines').select('*').eq('receipt_id',id).order('id').limit(250);
+    if (after) query = query.gt('id',after);
+    const {data,error} = await query;
+    if (error) throw error;
+    return (data || []) as DBReceiptLine[];
+  });
+  lines.sort((a,b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+  return { ...receipt, lines };
 }
 
 export async function createReceiptWithLines(input: CreateReceiptInput): Promise<DBReceipt> {
