@@ -11,10 +11,12 @@ export function startAutomaticSync<T>(options: {
   let controller: AbortController | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let lastAttempt = 0;
+  let invalidated = false;
   async function refresh() {
     if (stopped || running) return;
     clearTimeout(retry);
     running = true;
+    invalidated = false;
     lastAttempt = Date.now();
     const current = new AbortController();
     controller = current;
@@ -29,13 +31,18 @@ export function startAutomaticSync<T>(options: {
     } finally {
       clearTimeout(timeout);
       running = false;
-      if (!stopped) retry = setTimeout(() => void refresh(), options.interval ?? 300000);
+      if (!stopped) retry = setTimeout(() => void refresh(), invalidated ? 1000 : options.interval ?? 300000);
     }
   }
   void refresh();
   return {
     // Returning to the app refreshes stale data without repeated focus requests.
     wake() { if (Date.now() - lastAttempt >= 60000) void refresh(); },
+    invalidate() {
+      if (stopped) return;
+      invalidated = true;
+      if (!running) { clearTimeout(retry); retry = setTimeout(() => void refresh(), 1000); }
+    },
     stop() { stopped = true; clearTimeout(retry); controller?.abort(); },
   };
 }

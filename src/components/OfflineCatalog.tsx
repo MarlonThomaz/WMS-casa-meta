@@ -13,9 +13,9 @@ export default function OfflineCatalog({ copy, loaded, query, onQueryChange }: {
       <h1 className="text-2xl font-bold text-slate-800">Localizar produto</h1>
       <p className="text-slate-600">Continue pesquisando os produtos e endereços disponíveis neste aparelho. Movimentações precisam de conexão.</p>
       {!loaded && <p>Carregando produtos…</p>}
-      {loaded && !copy && <p>A preparação automática ainda não foi concluída. Conecte-se e entre no sistema; os dados serão preparados sem precisar clicar em nada.</p>}
+      {loaded && !copy && <p>Nenhuma cópia válida para esta conta. Conecte-se e entre no sistema; os dados serão preparados automaticamente. A cópia tem validade máxima de 24 horas.</p>}
       {copy && <>
-        <p role="status" className="bg-amber-100 p-3 rounded-lg">Cópia de {new Date(copy.savedAt).toLocaleString('pt-BR')} · {copy.products.length} produtos · {copy.locations.length} endereços</p>
+        <p role="status" className="bg-amber-100 p-3 rounded-lg">Cópia de {new Date(copy.savedAt).toLocaleString('pt-BR')} · {copy.products.length} produtos · {copy.locations.length} endereços. Saldos podem ter mudado; confirme online antes de movimentar.</p>
         <label className="block">SKU, produto, código de barras ou endereço
           <input value={query} onChange={e => onQueryChange(e.target.value)} className="block w-full border rounded-lg p-3 mt-1" placeholder="Digite ou use o leitor USB" />
         </label>

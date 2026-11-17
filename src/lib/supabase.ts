@@ -1,5 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Role } from '../types';
+import { affectsOfflineCatalog } from '../offline/mutation';
+import { notifyCatalogChanged } from '../offline/storage';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabasePublishableKey =
@@ -12,6 +14,15 @@ let supabaseClient: SupabaseClient;
 
 if (isSupabaseConfigured) {
   supabaseClient = createClient(supabaseUrl, supabasePublishableKey, {
+    global: {
+      fetch: async (input, init) => {
+        const response = await globalThis.fetch(input, init);
+        const url = input instanceof Request ? input.url : String(input);
+        const method = init?.method || (input instanceof Request ? input.method : 'GET');
+        if (response.ok && affectsOfflineCatalog(url, method, supabaseUrl)) notifyCatalogChanged();
+        return response;
+      },
+    },
     auth: {
       autoRefreshToken: true,
       persistSession: true,
