@@ -4,6 +4,7 @@ import { useAuth } from './contexts/AuthContext';
 import type { Page } from './types';
 import OfflineCatalog from './components/OfflineCatalog';
 import { useOfflineCatalog } from './offline/useOfflineCatalog';
+import { useBackendReachability } from './offline/connectivity';
 import Login from './components/Login';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -40,22 +41,20 @@ function renderPage(page: Page, onNavigate: (page: Page) => void, search: string
 }
 
 export default function App() {
-  const { user, loading, isDemo } = useAuth();
+  const { user, session, loading, isDemo, refreshProfile, signOut } = useAuth();
   const [search, setSearch] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
-  const [online, setOnline] = useState(navigator.onLine);
+  const online = useBackendReachability();
   useEffect(() => {
-    const update = () => setOnline(navigator.onLine);
-    window.addEventListener('online', update);
-    window.addEventListener('offline', update);
-    return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); };
-  }, []);
+    if (online && session?.user.id) void refreshProfile();
+  }, [online, session?.user.id, refreshProfile]);
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
 
-  const offline = useOfflineCatalog(online, user?.id, !isDemo);
+  const sessionUserId = session?.user.id;
+  const offline = useOfflineCatalog(online, sessionUserId, !isDemo, Boolean(user && user.id === sessionUserId));
   const offlineStatus = !online
-    ? `Sem conexão · ${offline.copy ? 'dados de ' + new Date(offline.copy.savedAt).toLocaleString('pt-BR') : 'dados offline ainda indisponíveis'}`
+    ? `Sem conexão · ${offline.copy ? 'dados de ' + new Date(offline.copy.savedAt).toLocaleString('pt-BR') : 'dados offline indisponíveis ou expirados'}`
     : offline.busy ? (offline.copy ? 'Atualizando dados para consulta sem internet…' : 'Preparando consulta sem internet automaticamente…')
     : offline.error ? (offline.copy ? 'Não foi possível atualizar agora. A última cópia continua disponível; tentaremos novamente automaticamente.' : 'Consulta offline ainda indisponível. Tentaremos preparar os dados novamente automaticamente.')
     : offline.shellError ? 'Não foi possível preparar a abertura sem internet. Reconecte e reabra o app para tentar novamente.'
@@ -64,7 +63,7 @@ export default function App() {
   const status = <div role="status" className="bg-slate-200 text-slate-700 px-4 py-2 text-sm">{offlineStatus}</div>;
   const catalog = <OfflineCatalog copy={offline.copy} loaded={offline.loaded} query={search} onQueryChange={setSearch} />;
 
-  if (!online && !user) return <div className="min-h-dvh bg-slate-100"><header className="bg-slate-900 text-white p-4 font-semibold">Annona Mercis WMS</header>{status}{catalog}</div>;
+  if (!online && !user) return <div className="min-h-dvh bg-slate-100"><header className="bg-slate-900 text-white p-4 font-semibold flex flex-wrap justify-between gap-2">Annona Mercis WMS {sessionUserId && <button type="button" onClick={() => void signOut()} className="underline text-sm">Sair e apagar dados</button>}</header>{status}{catalog}</div>;
 
   if (loading && online) {
     return (
