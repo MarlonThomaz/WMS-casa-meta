@@ -1,36 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import {useRequest} from './useRequest';
 import {
   type Movement,
   type MovementWithLines,
   createAndProcessMovement,
   getMovementById,
-  getMovements,
+  getMovementsPage,
+  getMovementsCounts,
 } from '../services/movements';
 
-export function useMovements(limit = 100) {
-  const [movements, setMovements] = useState<Movement[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadMovements = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await getMovements(limit);
-      setMovements(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar movimentações');
-      console.error('Erro ao carregar movimentações:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadMovements();
-  }, [limit]);
-
-  return { movements, loading, error, refresh: loadMovements };
+export function useMovements(page=1,type='all',status='all',term='') {
+  const request=useCallback(async()=>{
+    const [result,summary]=await Promise.all([getMovementsPage(page,type,status,term),getMovementsCounts()]);
+    return {result,summary};
+  },[page,type,status,term]);
+  const {value,loading,error,refresh}=useRequest(JSON.stringify([page,type,status,term]),request);
+  return {movements:value?.result.items??[],total:value?.result.total??0,summary:value?.summary,loading,error,refresh};
 }
 
 export function useMovement(id: string | null) {

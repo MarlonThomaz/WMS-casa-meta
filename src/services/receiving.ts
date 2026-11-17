@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured, isDemoMode } from '../lib/supabase';
 import { readAllById } from './readAll';
+import {historyPage,historyCounts,localHistoryPage} from './history';
 import { demoId, demoProducts, demoReceiptLines, demoReceipts } from '../demoStore';
 import type { DBReceipt, DBReceiptLine, ReceiptWithLines } from '../types';
 
@@ -212,4 +213,14 @@ export async function cancelReceipt(receiptId: string): Promise<void> {
 
   if (error) throw error;
   if (!data) throw new Error('Recebimento não está mais aberto; atualize a tela');
+}
+
+export async function getReceiptsPage(page=1,status='all'){
+  if(isDemoMode)return localHistoryPage(demoReceipts.filter(row=>status==='all'||row.status===status),page);
+  return historyPage<DBReceipt>('receipts',page,{status});
+}
+export async function getReceiptsCounts(){
+  const keys=["pending","partial","completed","cancelled"] as const;
+  if(isDemoMode)return Object.fromEntries(keys.map(key=>[key,demoReceipts.filter(row=>row.status===key).length])) as Record<typeof keys[number],number>;
+  return historyCounts('receipts','status',keys);
 }

@@ -81,3 +81,12 @@ try { assert.equal((await s.completeStockCount('count-1')).discrepancies,null,'c
 finally {console.warn=orig;}
 assert.ok(rpcCalls.some(([name,params])=>name==='search_stock_count_lines'&&params.p_offset===5950));
 console.log('Round 10 regression: 6000 physical count lines, global progress, zero, filtering, 1200 histories and post-commit recovery passed.');
+
+const readAllSource=readFileSync(new URL('../src/services/readAll.ts',import.meta.url),'utf8');
+const readAllCode=ts.transpileModule(readAllSource,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2020}}).outputText;
+const {readAllById}=await import('data:text/javascript;base64,'+Buffer.from(readAllCode).toString('base64'));
+const allRows=Array.from({length:2501},(_,i)=>({id:String(i).padStart(5,'0')}));
+const readAll=await readAllById(async after=>allRows.filter(row=>!after||row.id>after).slice(0,37));
+assert.equal(readAll.length,2501);
+await assert.rejects(()=>readAllById(async()=>[{id:'same'}]),/inconsistente/);
+console.log('Cursor pagination: 2501 records under an artificial 37-row response limit and repeated-cursor rejection passed.');

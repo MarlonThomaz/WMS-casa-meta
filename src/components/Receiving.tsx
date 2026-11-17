@@ -1,4 +1,5 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import HistoryPagination from './HistoryPagination';
 import {
   AlertCircle,
   CheckCircle,
@@ -56,11 +57,13 @@ const emptyDraftLine = (): DraftLine => ({
 export default function Receiving() {
   const { user } = useAuth();
   const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
-  const { receipts, loading, error, refresh } = useReceipts();
+  const [page,setPage]=useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [filter, setFilter] = useState<'all' | DBReceipt['status']>('all');
 
+  const {receipts,total,summary,loading,error,refresh}=useReceipts(page,filter);
+  useEffect(()=>{if(!loading&&!error)setPage(current=>Math.min(current,Math.max(1,Math.ceil(total/50))));},[loading,error,total]);
   if (selectedId) {
     return (
       <ReceiptDetail
@@ -73,13 +76,8 @@ export default function Receiving() {
     );
   }
 
-  const filtered = receipts.filter((receipt) => filter === 'all' || receipt.status === filter);
-  const counts = {
-    pending: receipts.filter((r) => r.status === 'pending').length,
-    partial: receipts.filter((r) => r.status === 'partial').length,
-    completed: receipts.filter((r) => r.status === 'completed').length,
-    cancelled: receipts.filter((r) => r.status === 'cancelled').length,
-  };
+  const filtered=receipts;
+  const counts={pending:summary?.pending??0,partial:summary?.partial??0,completed:summary?.completed??0,cancelled:summary?.cancelled??0};
 
   return (
     <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
@@ -119,7 +117,7 @@ export default function Receiving() {
           <button
             type="button"
             key={status}
-            onClick={() => setFilter(status)}
+            onClick={() => {setFilter(status);setPage(1);}}
             className={`px-3 py-2 rounded-lg text-sm border ${
               filter === status
                 ? 'bg-blue-600 border-blue-600 text-white'
@@ -178,6 +176,7 @@ export default function Receiving() {
           </table>
         </div>
         {loading && <div className="p-6 text-center text-slate-500">Carregando recebimentos...</div>}
+        <HistoryPagination page={page} total={total} loading={loading} onChange={setPage}/>
       </div>
 
       {showCreate && (
@@ -185,6 +184,7 @@ export default function Receiving() {
           onClose={() => setShowCreate(false)}
           onCreated={async (id) => {
             setShowCreate(false);
+            setPage(1);
             await refresh();
             setSelectedId(id);
           }}

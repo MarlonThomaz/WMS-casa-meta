@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import {useRequest} from './useRequest';
 import {
   type Shipment,
   type ShipmentWithLines,
-  getShipments,
+  getShipmentsPage,
+  getShipmentsCounts,
   getShipmentById,
   createShipmentWithLines,
   startPicking,
@@ -12,29 +14,13 @@ import {
   cancelShipment,
 } from '../services/shipping';
 
-export function useShipments(limit = 100) {
-  const [shipments, setShipments] = useState<Shipment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadShipments = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      setShipments(await getShipments(limit));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar expedições');
-      console.error('Erro ao carregar expedições:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadShipments();
-  }, [limit]);
-
-  return { shipments, loading, error, refresh: loadShipments };
+export function useShipments(page=1,status='all') {
+  const request=useCallback(async()=>{
+    const [result,summary]=await Promise.all([getShipmentsPage(page,status),getShipmentsCounts()]);
+    return {result,summary};
+  },[page,status]);
+  const {value,loading,error,refresh}=useRequest(JSON.stringify([page,status]),request);
+  return {shipments:value?.result.items??[],total:value?.result.total??0,summary:value?.summary,loading,error,refresh};
 }
 
 export function useShipment(id: string | null) {

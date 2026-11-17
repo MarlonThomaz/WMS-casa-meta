@@ -1,4 +1,5 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import HistoryPagination from './HistoryPagination';
 import {
   AlertCircle,
   CheckCircle,
@@ -69,11 +70,13 @@ const emptyDraftLine = (): DraftLine => ({
 export default function Shipping() {
   const { user } = useAuth();
   const canOperate = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
-  const { shipments, loading, error, refresh } = useShipments();
+  const [page,setPage]=useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [filter, setFilter] = useState<'all' | DBShipment['status']>('all');
 
+  const {shipments,total,summary,loading,error,refresh}=useShipments(page,filter);
+  useEffect(()=>{if(!loading&&!error)setPage(current=>Math.min(current,Math.max(1,Math.ceil(total/50))));},[loading,error,total]);
   if (selectedId) {
     return (
       <ShipmentDetail
@@ -86,13 +89,8 @@ export default function Shipping() {
     );
   }
 
-  const filtered = shipments.filter((shipment) => filter === 'all' || shipment.status === filter);
-  const counts = {
-    pending: shipments.filter((s) => s.status === 'pending').length,
-    picking: shipments.filter((s) => s.status === 'picking').length,
-    packed: shipments.filter((s) => s.status === 'packed').length,
-    shipped: shipments.filter((s) => s.status === 'shipped').length,
-  };
+  const filtered=shipments;
+  const counts={pending:summary?.pending??0,picking:summary?.picking??0,packed:summary?.packed??0,shipped:summary?.shipped??0};
 
   return (
     <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
@@ -132,7 +130,7 @@ export default function Shipping() {
           <button
             type="button"
             key={status}
-            onClick={() => setFilter(status)}
+            onClick={() => {setFilter(status);setPage(1);}}
             className={`px-3 py-2 rounded-lg text-sm border ${
               filter === status
                 ? 'bg-blue-600 border-blue-600 text-white'
@@ -191,6 +189,7 @@ export default function Shipping() {
           </table>
         </div>
         {loading && <div className="p-6 text-center text-slate-500">Carregando expedições...</div>}
+        <HistoryPagination page={page} total={total} loading={loading} onChange={setPage}/>
       </div>
 
       {showCreate && (
@@ -198,6 +197,7 @@ export default function Shipping() {
           onClose={() => setShowCreate(false)}
           onCreated={async (id) => {
             setShowCreate(false);
+            setPage(1);
             await refresh();
             setSelectedId(id);
           }}
