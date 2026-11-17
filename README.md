@@ -135,7 +135,7 @@ A CI executa esses checks automaticamente e também recria o banco do zero para 
 
 As migrations ficam em `supabase/migrations` e são aplicadas em ordem numérica.
 
-A cadeia histórica **001–020 deve ser preservada**. Ela é necessária para reconstruir o schema de forma reproduzível e não deve ser tratada como código morto apenas por conter versões anteriores de funções ou políticas.
+A cadeia histórica **001–033 deve ser preservada**. Ela é necessária para reconstruir o schema de forma reproduzível e não deve ser tratada como código morto apenas por conter versões anteriores de funções ou políticas.
 
 A suíte atual de regressão fica em `supabase/tests` e cobre:
 
@@ -227,4 +227,10 @@ Ainda devem ser concluídos:
 
 Para o piloto, utilize a aplicação **web** em navegador moderno.
 
-PWA instalável, Electron/Windows, Capacitor/Android, iOS e operação offline não fazem parte da versão de piloto atual. Esses alvos poderão ser reconstruídos futuramente sobre a versão web estabilizada.
+### Consulta offline (Round 9)
+
+A aplicação publicada por HTTPS prepara automaticamente uma cópia mínima de produtos, códigos de barras, endereços e saldos em IndexedDB, associada à conta autenticada neste navegador. O service worker armazena somente a interface estática. A cópia é somente leitura, tem validade de 24 horas desde a última atualização e exibe sua data; não representa estoque atual garantido. É necessário um login prévio e uma primeira sincronização bem-sucedida. Se a sessão local não estiver disponível (por exemplo, após expiração do token), conecte-se novamente.
+
+As atualizações acontecem a cada cinco minutos e após operações relevantes neste navegador; falhas preservam a última cópia válida. A aplicação verifica o acesso ao backend também quando o Wi-Fi permanece conectado. Ao sair ou trocar de conta, bloqueia e tenta apagar os dados do aparelho; a revogação remota exige conexão. Desativação remota de um perfil só pode ser descoberta quando voltar a comunicar-se com o servidor. Dados locais não são criptografados pela aplicação; use dispositivos corporativos protegidos, não compartilhe perfis de navegador e não trate a cópia como autorização para movimentar mercadoria.
+
+Movimentações, contagens e todas as escritas exigem conexão. PWA instalável, Electron/Windows, APK/IPA e fila de escritas offline não fazem parte desta fase.

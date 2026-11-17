@@ -28,7 +28,7 @@ export function useBackendReachability(): boolean {
       let ok = false;
       try {
         const response = await fetch(url, { method: 'HEAD', headers: { apikey }, cache: 'no-store', credentials: 'omit', signal: current.signal });
-        ok = reachableStatus(response.status);
+        ok = !current.signal.aborted && reachableStatus(response.status);
       } catch { /* Wi-Fi may be connected without reaching the backend. */ }
       finally {
         clearTimeout(timeout);
@@ -41,8 +41,9 @@ export function useBackendReachability(): boolean {
     }
     const lost = () => { setReachable(false); controller?.abort(); clearTimeout(next); };
     const wake = () => { if (document.visibilityState === 'visible') void check(); };
+    const reconnect = () => { void check(); };
     window.addEventListener('offline', lost);
-    window.addEventListener('online', wake);
+    window.addEventListener('online', reconnect);
     window.addEventListener('focus', wake);
     document.addEventListener('visibilitychange', wake);
     void check();
@@ -51,7 +52,7 @@ export function useBackendReachability(): boolean {
       controller?.abort();
       clearTimeout(next);
       window.removeEventListener('offline', lost);
-      window.removeEventListener('online', wake);
+      window.removeEventListener('online', reconnect);
       window.removeEventListener('focus', wake);
       document.removeEventListener('visibilitychange', wake);
     };
