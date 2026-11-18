@@ -18,7 +18,7 @@ Registre antes de começar:
 
 1. Criar projeto Supabase de teste vazio.
 2. Aplicar as migrations de `supabase/migrations` em ordem numérica.
-3. Confirmar que a última migration aplicada é `017_pilot_inventory_integrity.sql` ou posterior.
+3. Confirmar a cadeia de migrations até `034_catalog_import.sql` na Round 11, em homologação. Revisar seeds antes de qualquer implantação real.
 4. Não inserir `service_role` no frontend.
 5. Criar as contas de teste no Supabase Auth.
 
@@ -201,3 +201,7 @@ Somente iniciar o piloto quando:
 - scanner usado na operação tiver sido testado fisicamente;
 - backup e restauração tiverem sido ensaiados;
 - não houver bloqueador conhecido de integridade de estoque.
+
+## Round 11: catálogo e recuperação
+
+Seguir [RECOVERY_RUNBOOK.md](RECOVERY_RUNBOOK.md). Validar prévia CSV com erros e arquivo correto, repetição sem novas gravações, perfil negado, barcode preservando zero, backup com manifesto e restauração em destino isolado. Registrar tempo de recuperação e comparar dados antes de autorizar uso real.

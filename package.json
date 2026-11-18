@@ -10,7 +10,10 @@
     "build:homolog": "vite build --mode homologation",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "dev:mobile": "vite --mode homologation --host 0.0.0.0"
+    "dev:mobile": "vite --mode homologation --host 0.0.0.0",
+    "backup:wms": "node scripts/wms-backup.mjs backup",
+    "backup:verify": "node scripts/wms-backup.mjs verify",
+    "backup:restore-local": "node scripts/wms-backup.mjs restore-local"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",

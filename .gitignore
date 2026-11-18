@@ -9,3 +9,10 @@ release/
 .env.local
 .env.*.local
 !.env.example
+
+# Sensitive local recovery artifacts
+backups/
+.wms-backups/
+*.dump
+*.backup
+*.pgpass
