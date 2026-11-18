@@ -2,7 +2,7 @@
 
 ## Escopo
 
-A ferramenta de TI produz um arquivo lógico PostgreSQL consistente dos schemas public e auth, com catálogo do dump e manifesto SHA-256. Não é backup completo dos recursos gerenciados Supabase, arquivos Storage, segredos, configurações Auth, papéis globais, histórico de migrations fora desses schemas ou Edge Functions. A recuperação hospedada deve seguir o mecanismo oficial do Supabase, preferencialmente restaurando em um novo projeto. Não execute um dump SQL de produção sobre outro projeto sem revisão.
+A ferramenta de TI produz um arquivo lógico PostgreSQL consistente dos schemas public e auth e inclui as extensões uuid-ossp e pgcrypto, com catálogo do dump e manifesto SHA-256. Não é backup completo dos recursos gerenciados Supabase, arquivos Storage, segredos, configurações Auth, papéis globais, histórico de migrations fora desses schemas ou Edge Functions. A recuperação hospedada deve seguir o mecanismo oficial do Supabase, preferencialmente restaurando em um novo projeto. Não execute um dump SQL de produção sobre outro projeto sem revisão.
 
 ## 1. Pré-implantação
 
@@ -40,7 +40,7 @@ node scripts/wms-backup.mjs restore-local /caminho/privado/backups/wms-... --con
 psql -X -v ON_ERROR_STOP=1 -f supabase/diagnostics/integrity_report.sql
 ```
 
-A rotina exige destino vazio e versões principais iguais de origem, ferramentas e destino, valida manifesto e restaura em uma transação. Depois confirma tabelas e invariantes básicas. Compare contagens, amostras de SKUs, saldos/reservas e histórico com uma referência consistente da origem. Em ensaio controlado, sem escritas concorrentes, compare a saída de row_counts.sql na origem e no destino. Em Supabase novo, valide também Auth, funções RPC, RLS (viewer/operator/manager/admin), sequências, auditoria e funcionamento do frontend. Registre duração e resultado. A CI simula o PostgreSQL e Auth mínimos; não substitui o ensaio no provedor real.
+A rotina exige destino vazio (apenas o schema public padrão, sem objetos) e versões principais iguais de origem, ferramentas e destino, valida manifesto e restaura em uma transação. Depois confirma tabelas e invariantes básicas. Compare contagens, amostras de SKUs, saldos/reservas e histórico com uma referência consistente da origem. Em ensaio controlado, sem escritas concorrentes, compare a saída de row_counts.sql na origem e no destino. Em Supabase novo, valide também Auth, funções RPC, RLS (viewer/operator/manager/admin), sequências, auditoria e funcionamento do frontend. Registre duração e resultado. A CI simula o PostgreSQL e Auth mínimos; não substitui o ensaio no provedor real.
 
 ## 4. Incidente de dados
 

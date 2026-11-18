@@ -343,6 +343,7 @@ jobs:
           root="$(mktemp -d)"
           trap 'rm -rf "$root"' EXIT
           export WMS_CI_BACKUP_ROOT="$root"
+          export TMPDIR="$root"
           mkdir "$root/bin"
           cat > "$root/bin/pg-client" <<'SH'
           #!/usr/bin/env bash

@@ -7,9 +7,10 @@ import {createReadStream} from 'node:fs';
 import {mkdir,open,readFile,writeFile,stat,mkdtemp,rename,rm} from 'node:fs/promises';
 import {resolve,join,basename} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {tmpdir} from 'node:os';
 
 const scope=['public','auth'];
-const postgresEnv={...process.env};
+const postgresEnv={...process.env,LC_ALL:'C'};
 function run(command,args,{capture=false,quiet=false,env=postgresEnv}={}){
   const r=spawnSync(command,args,{env,encoding:'utf8',
     stdio:['ignore',capture?'pipe':quiet?'ignore':'inherit','inherit'],maxBuffer:16*1024*1024});
@@ -65,7 +66,7 @@ async function backup(root){
   try{
     // Precreate private file. The custom format captures a consistent MVCC snapshot.
     await (await open(archive,'wx',0o600)).close();
-    run('pg_dump',['--format=custom','--schema=public','--schema=auth','--no-password','--file',archive]);
+    run('pg_dump',['--format=custom','--schema=public','--schema=auth','--extension=uuid-ossp','--extension=pgcrypto','--no-password','--file',archive]);
     run('pg_restore',['--list',archive],{quiet:true});
     const bytes=(await stat(archive)).size;
     if(!bytes)throw new Error('Backup vazio.');
@@ -97,10 +98,20 @@ async function restoreLocal(dir,confirmed){
   if(!source||!dumped||Number(source[1])!==major||Number(dumped[1])!==major)
     throw new Error('Restauração local exige a mesma versão principal na origem, no pg_dump e no PostgreSQL de destino.');
   const existing=run('psql',[...target,'-X','-At','-v','ON_ERROR_STOP=1','-c',
-    "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','auth') AND c.relkind IN ('r','p','v','m','S','f')"],{capture:true});
+    "SELECT (SELECT count(*) FROM pg_namespace WHERE nspname NOT IN ('public','pg_catalog','information_schema') AND nspname NOT LIKE 'pg_%')+(SELECT count(*) FROM pg_class WHERE relnamespace=(SELECT oid FROM pg_namespace WHERE nspname='public'))+(SELECT count(*) FROM pg_proc WHERE pronamespace=(SELECT oid FROM pg_namespace WHERE nspname='public'))+(SELECT count(*) FROM pg_type WHERE typnamespace=(SELECT oid FROM pg_namespace WHERE nspname='public'))"],{capture:true});
   if(existing!=='0')throw new Error('Restauração recusada: banco de destino não está vazio.');
-  // No --clean, no drop, never restores over a non-empty WMS.
-  run('pg_restore',[...target,'--exit-on-error','--single-transaction','--no-owner',archive]);
+  // template0 contains public by default. Only omit its CREATE SCHEMA entry
+  // if it already exists and the preceding check confirmed a pristine target.
+  // All tables, data, constraints and ACLs remain in the restore list.
+  const hasPublic=run('psql',[...target,'-X','-At','-v','ON_ERROR_STOP=1','-c',
+    "SELECT count(*) FROM pg_namespace WHERE nspname='public'"],{capture:true})==='1';
+  const selected=listing.split(/\r?\n/).filter(line=>!hasPublic||!/^\s*\d+;\s+\d+\s+\d+\s+SCHEMA\s+-\s+public(?:\s|$)/.test(line)).join('\n')+'\n';
+  const temp=await mkdtemp(join(tmpdir(),'wms-restore-list-'));
+  try{
+    const listfile=join(temp,'restore.list');
+    await writeFile(listfile,selected,{mode:0o600,flag:'wx'});
+    run('pg_restore',[...target,'--exit-on-error','--single-transaction','--no-owner','--use-list',listfile,archive]);
+  }finally{await rm(temp,{recursive:true,force:true});}
   const diagnostics=fileURLToPath(new URL('../supabase/diagnostics/verify_restored_wms.sql',import.meta.url));
   run('psql',[...target,'-X','-v','ON_ERROR_STOP=1','-f',diagnostics]);
   console.log('Restauração local validada. NÃO utilize esse banco como ambiente Supabase hospedado.');
