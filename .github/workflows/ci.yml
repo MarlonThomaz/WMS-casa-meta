@@ -338,17 +338,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Ubuntu runners may ship newer pg_dump/pg_restore than the service.
-          if [[ ! -x /usr/lib/postgresql/15/bin/pg_restore ]]; then
-            sudo apt-get update -qq
-            sudo apt-get install -y postgresql-client-15
-          fi
-          export PATH="/usr/lib/postgresql/15/bin:$PATH"
-          pg_dump --version
-          pg_restore --version
+          # Use the same PostgreSQL image as the service, independent of runner packages.
           export PGHOST=127.0.0.1
           root="$(mktemp -d)"
           trap 'rm -rf "$root"' EXIT
+          export WMS_CI_BACKUP_ROOT="$root"
+          mkdir "$root/bin"
+          cat > "$root/bin/pg-client" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          tool="$(basename "$0")"
+          exec docker run --rm -i --pull never --network host \
+            --user "$(id -u):$(id -g)" \
+            -e PGHOST -e PGPORT -e PGUSER -e PGDATABASE -e PGPASSWORD \
+            -v "$WMS_CI_BACKUP_ROOT:$WMS_CI_BACKUP_ROOT" \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" \
+            -w "$GITHUB_WORKSPACE" --entrypoint "$tool" postgres:15 "$@"
+          SH
+          chmod +x "$root/bin/pg-client"
+          for tool in psql pg_dump pg_restore createdb; do
+            ln -s pg-client "$root/bin/$tool"
+          done
+          export PATH="$root/bin:$PATH"
+          pg_dump --version
+          pg_restore --version
           psql -X -At -v ON_ERROR_STOP=1 -f supabase/diagnostics/row_counts.sql > "$root/counts-before.txt"
           node scripts/wms-backup.mjs backup "$root"
           backup="$(find "$root" -maxdepth 1 -type d -name 'wms-*' -print -quit)"
