@@ -38,6 +38,9 @@ jobs:
       - name: Scalability regressions
         run: node scripts/test-round10.mjs
 
+      - name: Catalog import regressions
+        run: node scripts/test-round11.mjs
+
       - name: Production build
         if: always()
         shell: bash
@@ -305,7 +308,7 @@ jobs:
         shell: bash
         run: |
           psql -v ON_ERROR_STOP=1 <<'SQL'
-          GRANT USAGE ON SCHEMA public TO authenticated;
+          GRANT USAGE ON SCHEMA public, auth TO authenticated;
           GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated;
           GRANT INSERT, UPDATE, DELETE ON
             public.products,
@@ -326,3 +329,41 @@ jobs:
       - name: Execute authenticated RLS regressions
         shell: bash
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/rls_tests_round8.sql
+
+      - name: Execute Round 11 atomic catalog import regressions
+        shell: bash
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/catalog_import_round11.sql
+
+      - name: Test backup and local restoration
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PGHOST=127.0.0.1
+          root="$(mktemp -d)"
+          trap 'rm -rf "$root"' EXIT
+          psql -X -At -v ON_ERROR_STOP=1 -f supabase/diagnostics/row_counts.sql > "$root/counts-before.txt"
+          node scripts/wms-backup.mjs backup "$root"
+          backup="$(find "$root" -maxdepth 1 -type d -name 'wms-*' -print -quit)"
+          test -n "$backup"
+          node scripts/wms-backup.mjs verify "$backup"
+          cp -a "$backup" "$root/corrupt"
+          printf 'x' >> "$root/corrupt/wms.dump"
+          if node scripts/wms-backup.mjs verify "$root/corrupt"; then
+            echo "Corrupted backup was accepted"; exit 1
+          fi
+          if node scripts/wms-backup.mjs restore-local "$backup" --confirm-disposable; then
+            echo "Non-disposable target accepted"; exit 1
+          fi
+          createdb -T template0 wms_restore_ci
+          export PGDATABASE=wms_restore_ci
+          if node scripts/wms-backup.mjs restore-local "$backup"; then
+            echo "Restore without confirmation accepted"; exit 1
+          fi
+          node scripts/wms-backup.mjs restore-local "$backup" --confirm-disposable
+          psql -X -At -v ON_ERROR_STOP=1 -f supabase/diagnostics/row_counts.sql > "$root/counts-after.txt"
+          diff -u "$root/counts-before.txt" "$root/counts-after.txt"
+          psql -X -v ON_ERROR_STOP=1 -f supabase/diagnostics/integrity_report.sql > /dev/null
+          if node scripts/wms-backup.mjs restore-local "$backup" --confirm-disposable; then
+            echo "Non-empty restore accepted"; exit 1
+          fi
+          echo "Round 11 backup restore, row counts and safety guards passed."
