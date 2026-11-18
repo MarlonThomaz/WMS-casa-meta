@@ -4,7 +4,7 @@ const rpcs = new Set([
   'create_and_process_movement', 'process_stock_movement',
   'process_receipt_atomically', 'reserve_stock_for_shipment',
   'confirm_shipment_picked', 'release_shipment_reservations',
-  'process_stock_count_adjustments', 'register_product_with_barcode',
+  'process_stock_count_adjustments', 'register_product_with_barcode', 'import_product_catalog',
 ]);
 
 export function affectsOfflineCatalog(url: string, method: string, backendUrl: string): boolean {

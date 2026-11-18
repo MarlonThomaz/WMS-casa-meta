@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useProductSearch } from '../hooks/useProductSearch';
 import { useAuth } from '../contexts/AuthContext';
+import CatalogImportModal from './CatalogImportModal';
 import type { DBProduct, ProductWithStock } from '../types';
 
 const PAGE_SIZE = 50;
@@ -28,9 +29,12 @@ export default function Inventory() {
     addProduct,
     editProduct,
     removeProduct,
+    refresh,
   } = useProductSearch(searchTerm, page, PAGE_SIZE);
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport,setShowImport]=useState(false);
+  const canImport=!isDemo&&(user?.role==='admin'||user?.role==='manager');
 
   const canMaintainProducts = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
 
@@ -45,7 +49,7 @@ export default function Inventory() {
     }
   };
 
-  if (loading && products.length === 0) {
+  if (loading && products.length === 0 && !showImport) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -69,14 +73,12 @@ export default function Inventory() {
         </div>
 
         {canMaintainProducts && (
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            <Plus className="w-4 h-4" />
-            Novo produto
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {canImport&&<button type="button" onClick={()=>setShowImport(true)} className="px-4 py-2 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50">Importar CSV</button>}
+            <button type="button" onClick={() => setShowCreate(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+              <Plus className="w-4 h-4" /> Novo produto
+            </button>
+          </div>
         )}
       </div>
 
@@ -209,6 +211,8 @@ export default function Inventory() {
           </div>
         )}
       </div>
+
+      {showImport&&canImport&&<CatalogImportModal onClose={()=>setShowImport(false)} onImported={async()=>{setSearchTerm('');setPage(1);await refresh();}}/>}
 
       {showCreate && (
         <ProductModal
