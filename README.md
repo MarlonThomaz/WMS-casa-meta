@@ -244,3 +244,7 @@ A contagem física usa as RPCs de busca/progresso das migrations 032–033, com 
 - Inventário > Importar CSV: admin/manager autenticado, até 5.000 produtos, prévia e relatório de conflitos. Migration 034 necessária; gravação atômica sem saldos fictícios. Produtos existentes idênticos são ignorados; alterações e cargas físicas são separadas.
 - Ferramentas de TI: `npm run backup:wms -- <diretório privado>`, `npm run backup:verify -- <pasta da cópia>`, `npm run backup:restore-local -- <pasta da cópia> --confirm-disposable`. Exige ferramentas PostgreSQL e variáveis libpq; ver [RECOVERY_RUNBOOK.md](RECOVERY_RUNBOOK.md). O arquivo lógico não substitui backup gerenciado completo. Nenhum backup real, agendamento ou restauração em produção é ativado pelo build.
 - Diagnóstico somente leitura em `supabase/diagnostics/`. Não executar testes destrutivos na produção.
+
+### Round 12A — Integração ERP por arquivo
+
+Inventário > Integração ERP: mapeamento assistido de CSV (catálogo e estoque), importação segura pela migration 034, conciliação somente leitura pela migration 035 e exportação de relatório JSON/CSV. Não é uma integração API ativa. Utilizar exclusivamente a empresa/armazém correspondente à instância. Veja [contrato e roteiro de homologação](docs/ATON_INTEGRATION.md) e os exemplos sintéticos em `docs/fixtures/`.

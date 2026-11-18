@@ -41,6 +41,9 @@ jobs:
       - name: Catalog import regressions
         run: node scripts/test-round11.mjs
 
+      - name: ERP adapter regressions
+        run: node scripts/test-round12.mjs
+
       - name: Production build
         if: always()
         shell: bash
@@ -333,6 +336,10 @@ jobs:
       - name: Execute Round 11 atomic catalog import regressions
         shell: bash
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/catalog_import_round11.sql
+
+      - name: Execute Round 12 ERP reconciliation regressions
+        shell: bash
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/erp_reconciliation_round12.sql
 
       - name: Test backup and local restoration
         shell: bash
