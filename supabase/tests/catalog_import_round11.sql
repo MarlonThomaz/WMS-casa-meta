@@ -9,6 +9,7 @@ DECLARE
   v_initial_balances bigint;
   v_initial_movements bigint;
   v_initial_audit bigint;
+  v_started timestamptz;
 BEGIN
   SELECT count(*) INTO v_initial_balances FROM public.stock_balances;
   SELECT count(*) INTO v_initial_movements FROM public.movements;
@@ -16,7 +17,9 @@ BEGIN
   SELECT jsonb_agg(jsonb_build_object('line',i+1,'sku','R11-'||lpad(i::text,5,'0'),'name','Produto '||i,
     'unit_base','un','min_stock',0,'max_stock',10,'barcode','11'||lpad(i::text,11,'0')) ORDER BY i)
     INTO v_rows FROM generate_series(1,3000) i;
+  v_started:=clock_timestamp();
   v_result:=public.import_product_catalog(v_rows,true);
+  RAISE NOTICE 'Prévia 3000 SKUs: % ms',round(extract(epoch FROM clock_timestamp()-v_started)*1000);
   IF (v_result->>'ready')::int<>3000 OR (v_result->>'created')::int<>0 OR jsonb_array_length(v_result->'issues')<>0
     OR EXISTS(SELECT 1 FROM public.products WHERE sku LIKE 'R11-%') THEN
     RAISE EXCEPTION 'Prévia incorreta ou gravou dados: %',v_result;
@@ -26,7 +29,9 @@ BEGIN
   IF jsonb_array_length(v_result->'issues')<>1 OR (v_result->>'created')::int<>0 OR EXISTS(SELECT 1 FROM public.products WHERE sku LIKE 'R11-%') THEN
     RAISE EXCEPTION 'Arquivo com erro foi gravado';
   END IF;
+  v_started:=clock_timestamp();
   v_result:=public.import_product_catalog(v_rows,false);
+  RAISE NOTICE 'Gravação 3000 SKUs: % ms',round(extract(epoch FROM clock_timestamp()-v_started)*1000);
   IF (v_result->>'created')::int<>3000 OR (SELECT count(*) FROM public.products WHERE sku LIKE 'R11-%')<>3000 THEN
     RAISE EXCEPTION 'Importação 3000 produtos incorreta';
   END IF;

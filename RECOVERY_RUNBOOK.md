@@ -14,7 +14,7 @@ A ferramenta de TI produz um arquivo lógico PostgreSQL consistente dos schemas 
 
 ## 2. Exportar e verificar
 
-Instale ferramentas PostgreSQL compatíveis com a versão do servidor (pg_dump não pode ser mais antigo que o servidor), e use conexão direta ou pooler em modo sessão, nunca pooler de transação para este procedimento. Configure PGHOST, PGPORT, PGUSER, PGDATABASE e PGSSLMODE=verify-full para ambiente hospedado; siga a configuração TLS do provedor. Use PGPASSFILE com permissões restritas. Não coloque credenciais em argumentos ou arquivos versionados. Exemplos de comandos:
+Instale pg_dump e pg_restore da **mesma versão principal** do servidor (por exemplo, 15 para PostgreSQL 15; o script recusa divergências para evitar dumps com parâmetros incompatíveis), e use conexão direta ou pooler em modo sessão, nunca pooler de transação para este procedimento. Configure PGHOST, PGPORT, PGUSER, PGDATABASE e PGSSLMODE=verify-full para ambiente hospedado; siga a configuração TLS do provedor. Use PGPASSFILE com permissões restritas. Não coloque credenciais em argumentos ou arquivos versionados. Exemplos de comandos:
 
 ```sh
 node scripts/wms-backup.mjs backup /caminho/privado/backups
@@ -40,7 +40,7 @@ node scripts/wms-backup.mjs restore-local /caminho/privado/backups/wms-... --con
 psql -X -v ON_ERROR_STOP=1 -f supabase/diagnostics/integrity_report.sql
 ```
 
-A rotina exige destino vazio, valida manifesto e restaura em uma transação. Depois confirma tabelas e invariantes básicas. Compare contagens, amostras de SKUs, saldos/reservas e histórico com uma referência consistente da origem. Em ensaio controlado, sem escritas concorrentes, compare a saída de row_counts.sql na origem e no destino. Em Supabase novo, valide também Auth, funções RPC, RLS (viewer/operator/manager/admin), sequências, auditoria e funcionamento do frontend. Registre duração e resultado. A CI simula o PostgreSQL e Auth mínimos; não substitui o ensaio no provedor real.
+A rotina exige destino vazio e versões principais iguais de origem, ferramentas e destino, valida manifesto e restaura em uma transação. Depois confirma tabelas e invariantes básicas. Compare contagens, amostras de SKUs, saldos/reservas e histórico com uma referência consistente da origem. Em ensaio controlado, sem escritas concorrentes, compare a saída de row_counts.sql na origem e no destino. Em Supabase novo, valide também Auth, funções RPC, RLS (viewer/operator/manager/admin), sequências, auditoria e funcionamento do frontend. Registre duração e resultado. A CI simula o PostgreSQL e Auth mínimos; não substitui o ensaio no provedor real.
 
 ## 4. Incidente de dados
 

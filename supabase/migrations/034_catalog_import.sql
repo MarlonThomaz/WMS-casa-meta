@@ -38,6 +38,9 @@ BEGIN
       count(*) OVER (PARTITION BY n.barcode) barcode_count,
       count(*) OVER (PARTITION BY n.line) line_count
     FROM normalized n
+  ), existing_skus AS (
+    SELECT lower(p0.sku) sku_key, count(*) matches, min(p0.id::text)::uuid product_id
+    FROM public.products p0 GROUP BY lower(p0.sku)
   ), inspected AS (
     SELECT n.*, CASE
       WHEN n.line IS NULL OR n.line < 2 OR n.line_count > 1 THEN 'Número de linha inválido ou repetido'
@@ -56,14 +59,11 @@ BEGIN
         p.min_stock IS DISTINCT FROM n.min_stock OR p.max_stock IS DISTINCT FROM n.max_stock OR
         (n.barcode IS NOT NULL AND (b.product_id IS DISTINCT FROM p.id OR NOT b.is_primary))
       ) THEN 'SKU existente com dados diferentes ou inativo; nenhuma alteração será feita'
-      WHEN existing.matches = 0 AND b.id IS NOT NULL THEN 'Código de barras já vinculado a outro produto'
+      WHEN coalesce(existing.matches,0) = 0 AND b.id IS NOT NULL THEN 'Código de barras já vinculado a outro produto'
       ELSE NULL END AS issue,
-      existing.matches
+      coalesce(existing.matches,0) matches
     FROM tagged n
-    CROSS JOIN LATERAL (
-      SELECT count(*) matches, min(p0.id::text)::uuid product_id FROM public.products p0
-      WHERE lower(p0.sku)=lower(n.sku)
-    ) existing
+    LEFT JOIN existing_skus existing ON existing.sku_key=lower(n.sku)
     LEFT JOIN public.products p ON p.id=existing.product_id
     LEFT JOIN public.product_barcodes b ON b.barcode=n.barcode
   )

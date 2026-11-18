@@ -40,8 +40,25 @@ function requireConnection(){
   if(!/^[A-Za-z0-9_.-]+$/.test(process.env.PGDATABASE))throw new Error('PGDATABASE deve ser somente o nome do banco.');
   if(!/^\d+$/.test(process.env.PGPORT))throw new Error('PGPORT inválida.');
 }
+function toolMajor(tool){
+  const version=run(tool,['--version'],{capture:true});
+  const match=version.match(/\(PostgreSQL\)\s+(\d+)\./);
+  if(!match)throw new Error('Não foi possível identificar a versão de '+tool+'.');
+  return Number(match[1]);
+}
+function serverMajor(target=[]){
+  const version=run('psql',[...target,'--no-password','-X','-At','-v','ON_ERROR_STOP=1','-c','SHOW server_version_num'],{capture:true});
+  if(!/^\d+$/.test(version))throw new Error('Versão do servidor inválida.');
+  return Math.floor(Number(version)/10000);
+}
+function requireMatchingTools(major,tools){
+  for(const tool of tools)if(toolMajor(tool)!==major)
+    throw new Error(tool+' deve ter a mesma versão principal do PostgreSQL de destino/origem ('+major+'). Ajuste o PATH.');
+}
 async function backup(root){
   requireConnection();
+  const major=serverMajor();
+  requireMatchingTools(major,['pg_dump','pg_restore']);
   await mkdir(root,{recursive:true,mode:0o700});
   const dir=await mkdtemp(join(root,'.pending-wms-'));
   const archive=join(dir,'wms.dump');
@@ -52,7 +69,7 @@ async function backup(root){
     run('pg_restore',['--list',archive],{quiet:true});
     const bytes=(await stat(archive)).size;
     if(!bytes)throw new Error('Backup vazio.');
-    const manifest={version:1,archive:'wms.dump',scope,createdAt:new Date().toISOString(),bytes,sha256:await sha(archive),
+    const manifest={version:1,archive:'wms.dump',scope,serverMajor:major,createdAt:new Date().toISOString(),bytes,sha256:await sha(archive),
       note:'Logical WMS archive. Not a complete Supabase platform backup.'};
     await writeFile(join(dir,'manifest.json'),JSON.stringify(manifest,null,2)+'\n',{mode:0o600,flag:'wx'});
     const final=join(root,'wms-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+basename(dir).slice(-6));
@@ -72,6 +89,13 @@ async function restoreLocal(dir,confirmed){
     throw new Error('Restauração recusada: exige --confirm-disposable, host local, banco wms_restore_* e nenhuma configuração de serviço/hostaddr.');
   const archive=await verify(dir);
   const target=['--host',host,'--port',process.env.PGPORT,'--username',process.env.PGUSER,'--dbname',db,'--no-password'];
+  const major=serverMajor(target);
+  requireMatchingTools(major,['pg_restore']);
+  const listing=run('pg_restore',['--list',archive],{capture:true});
+  const source=listing.match(/Dumped from database version:\s*(\d+)\./);
+  const dumped=listing.match(/Dumped by pg_dump version:\s*(\d+)\./);
+  if(!source||!dumped||Number(source[1])!==major||Number(dumped[1])!==major)
+    throw new Error('Restauração local exige a mesma versão principal na origem, no pg_dump e no PostgreSQL de destino.');
   const existing=run('psql',[...target,'-X','-At','-v','ON_ERROR_STOP=1','-c',
     "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','auth') AND c.relkind IN ('r','p','v','m','S','f')"],{capture:true});
   if(existing!=='0')throw new Error('Restauração recusada: banco de destino não está vazio.');
