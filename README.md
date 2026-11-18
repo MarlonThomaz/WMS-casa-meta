@@ -238,3 +238,9 @@ Movimentações, contagens e todas as escritas exigem conexão. PWA instalável,
 ### Escalabilidade (Round 10)
 
 A contagem física usa as RPCs de busca/progresso das migrations 032–033, com 50 linhas por página e confirmação explícita. O progresso considera todas as linhas, inclusive aquelas que não são exibidas. As edições ainda não confirmadas permanecem durante a navegação dentro da contagem, mas não são gravadas sem confirmação. Históricos de movimentação, recebimento, expedição, contagem e auditoria usam páginas de 50 registros e totais do banco. A pesquisa de auditoria cobre evento, entidade, usuário e UUID exato (não busca texto livre dentro do JSON de detalhes). Os detalhes de documentos e do código de barras são lidos em lotes por cursor. Aplicar as migrations existentes até 033 em homologação antes do teste. A CI inclui simulações de 6.000 linhas de contagem e 1.200 históricos; isso não substitui medir latência real no galpão.
+
+### Round 11 — Importação e recuperação
+
+- Inventário > Importar CSV: admin/manager autenticado, até 5.000 produtos, prévia e relatório de conflitos. Migration 034 necessária; gravação atômica sem saldos fictícios. Produtos existentes idênticos são ignorados; alterações e cargas físicas são separadas.
+- Ferramentas de TI: `npm run backup:wms -- <diretório privado>`, `npm run backup:verify -- <pasta da cópia>`, `npm run backup:restore-local -- <pasta da cópia> --confirm-disposable`. Exige ferramentas PostgreSQL e variáveis libpq; ver [RECOVERY_RUNBOOK.md](RECOVERY_RUNBOOK.md). O arquivo lógico não substitui backup gerenciado completo. Nenhum backup real, agendamento ou restauração em produção é ativado pelo build.
+- Diagnóstico somente leitura em `supabase/diagnostics/`. Não executar testes destrutivos na produção.
