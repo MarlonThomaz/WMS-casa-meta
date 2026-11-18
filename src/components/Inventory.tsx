@@ -12,6 +12,7 @@ import {
 import { useProductSearch } from '../hooks/useProductSearch';
 import { useAuth } from '../contexts/AuthContext';
 import CatalogImportModal from './CatalogImportModal';
+import ErpBridgeModal from './ErpBridgeModal';
 import type { DBProduct, ProductWithStock } from '../types';
 
 const PAGE_SIZE = 50;
@@ -34,6 +35,7 @@ export default function Inventory() {
   const [editingProduct, setEditingProduct] = useState<ProductWithStock | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport,setShowImport]=useState(false);
+  const [showErp,setShowErp]=useState(false);
   const canImport=!isDemo&&(user?.role==='admin'||user?.role==='manager');
 
   const canMaintainProducts = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operator';
@@ -49,7 +51,7 @@ export default function Inventory() {
     }
   };
 
-  if (loading && products.length === 0 && !showImport) {
+  if (loading && products.length === 0 && !showImport && !showErp) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -74,6 +76,7 @@ export default function Inventory() {
 
         {canMaintainProducts && (
           <div className="flex flex-wrap gap-2">
+            {canImport&&<button type="button" onClick={()=>setShowErp(true)} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">Integração ERP</button>}
             {canImport&&<button type="button" onClick={()=>setShowImport(true)} className="px-4 py-2 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50">Importar CSV</button>}
             <button type="button" onClick={() => setShowCreate(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
               <Plus className="w-4 h-4" /> Novo produto
@@ -212,6 +215,7 @@ export default function Inventory() {
         )}
       </div>
 
+      {showErp&&canImport&&<ErpBridgeModal onClose={()=>setShowErp(false)} onImported={async()=>{setSearchTerm('');setPage(1);await refresh();}}/>}
       {showImport&&canImport&&<CatalogImportModal onClose={()=>setShowImport(false)} onImported={async()=>{setSearchTerm('');setPage(1);await refresh();}}/>}
 
       {showCreate && (
